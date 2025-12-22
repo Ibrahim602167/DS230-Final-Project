@@ -534,3 +534,144 @@ print("- fe_product_features.csv")
 print("- fe_user_product_features.csv")
 print("- dataset_taskA_classification.csv")
 print("- dataset_taskB_regression.csv")
+# =========================
+# STEP 3 (Task B - Regression)  — ADD THIS AT THE END OF YOUR ORIGINAL FILE
+# =========================
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+# ===== تجهيز X و y =====
+X = X_reg.drop(columns=["target_days_to_next_order"])
+y = X_reg["target_days_to_next_order"]
+
+# ✅ Make time features categorical (better than treating them as continuous numbers)
+if "order_dow" in X.columns:
+    X["order_dow"] = X["order_dow"].astype("category")
+if "order_hour_of_day" in X.columns:
+    X["order_hour_of_day"] = X["order_hour_of_day"].astype("category")
+
+# ✅ FIX: numeric columns must include ALL numeric dtypes (int8/int16/int32/float32 too)
+num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+print("\n[Task B] Numeric columns:", num_cols)
+print("[Task B] Categorical columns:", cat_cols)
+
+# ===== Preprocessing =====
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", StandardScaler(), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+    ],
+    remainder="drop"
+)
+
+# ===== Split =====
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# ✅ Pipeline (clean + prevents mistakes)
+pipe_reg = Pipeline([
+    ("prep", preprocessor),
+    ("model", LinearRegression())
+])
+
+# ===== Train =====
+pipe_reg.fit(X_train, y_train)
+
+# ===== Predict =====
+y_pred = pipe_reg.predict(X_val)
+
+# ===== Evaluate =====
+mae = mean_absolute_error(y_val, y_pred)
+rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+r2 = r2_score(y_val, y_pred)
+
+print("\nTask B – Regression Results (Linear Regression)")
+print("MAE :", mae)
+print("RMSE:", rmse)
+print("R²  :", r2)
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, average_precision_score
+)
+import pandas as pd
+import numpy as np
+
+# ===== Downsample to avoid MemoryError (keep all positives + 5x negatives) =====
+pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
+neg = Xy_cls[Xy_cls["y_reordered_next"] == 0]
+
+neg_sample = neg.sample(n=min(len(pos) * 5, len(neg)), random_state=42)
+Xy_small = pd.concat([pos, neg_sample], axis=0).sample(frac=1, random_state=42).reset_index(drop=True)
+
+print("\n[Task A] Using downsampled data:", Xy_small.shape)
+print("[Task A] Downsampled class balance:\n", Xy_small["y_reordered_next"].value_counts(normalize=True))
+
+# ===== تجهيز X و y =====
+X = Xy_small.drop(columns=["y_reordered_next"])
+y = Xy_small["y_reordered_next"]
+
+# ✅ FIX: include all numeric dtypes (int8/int16/int32/float32...)
+num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+print("\n[Task A] Numeric columns:", len(num_cols))
+print("[Task A] Categorical columns:", len(cat_cols))
+
+# ===== Preprocessing (light + sparse-friendly) =====
+num_pipe = Pipeline([
+    ("imputer", SimpleImputer(strategy="constant", fill_value=0)),  # lighter than median
+    ("scaler", StandardScaler(with_mean=False))  # IMPORTANT for sparse
+])
+
+cat_pipe = Pipeline([
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
+])
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", num_pipe, num_cols),
+        ("cat", cat_pipe, cat_cols)
+    ],
+    remainder="drop",
+    sparse_threshold=0.3
+)
+
+# ===== Split =====
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# ===== Model =====
+pipe_cls = Pipeline([
+    ("prep", preprocessor),
+    ("model", LogisticRegression(max_iter=1000, class_weight="balanced"))
+])
+
+pipe_cls.fit(X_train, y_train)
+
+# ===== Predict + Evaluate =====
+y_pred = pipe_cls.predict(X_val)
+y_pred_proba = pipe_cls.predict_proba(X_val)[:, 1]
+
+print("\nTask A – Classification Results (Logistic Regression, downsampled)")
+print("Accuracy :", accuracy_score(y_val, y_pred))
+print("Precision:", precision_score(y_val, y_pred))
+print("Recall   :", recall_score(y_val, y_pred))
+print("F1-score :", f1_score(y_val, y_pred))
+print("ROC-AUC  :", roc_auc_score(y_val, y_pred_proba))
+print("PR-AUC   :", average_precision_score(y_val, y_pred_proba))
