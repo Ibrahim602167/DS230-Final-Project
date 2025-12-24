@@ -607,8 +607,7 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score
 )
-import pandas as pd
-import numpy as np
+
 
 # ===== Downsample to avoid MemoryError (keep all positives + 5x negatives) =====
 pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
@@ -675,3 +674,549 @@ print("Recall   :", recall_score(y_val, y_pred))
 print("F1-score :", f1_score(y_val, y_pred))
 print("ROC-AUC  :", roc_auc_score(y_val, y_pred_proba))
 print("PR-AUC   :", average_precision_score(y_val, y_pred_proba))
+# =========================
+# STEP 4 — FULL MODEL SUITE + COMPARISON (Task A + Task B) ✅ READY TO PASTE
+# Paste this whole block at "Step 4" and run ONLY this block (not the whole file)
+# Requires: Xy_cls, X_reg already created above
+# =========================
+
+import numpy as np
+import pandas as pd
+
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
+from sklearn.impute import SimpleImputer
+
+# ----- Task A models -----
+from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.svm import LinearSVC
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
+
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, average_precision_score
+)
+
+# ----- Task B models -----
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+
+# =========================
+# Helper: get score for AUC metrics
+# =========================
+def _get_score(model, X):
+    """Return a continuous score for ROC/PR AUC.
+    Prefer predict_proba[:,1], else decision_function."""
+    if hasattr(model, "predict_proba"):
+        return model.predict_proba(X)[:, 1]
+    if hasattr(model, "decision_function"):
+        return model.decision_function(X)
+    return model.predict(X)
+
+
+# =========================
+# TASK A — Classification: full suite (stable)
+# =========================
+def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
+
+    # ---- Downsample for feasibility (all pos + neg_ratio*pos negatives) ----
+    pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
+    neg = Xy_cls[Xy_cls["y_reordered_next"] == 0]
+    neg_sample = neg.sample(n=min(len(pos) * neg_ratio, len(neg)), random_state=random_state)
+
+    Xy_small = (
+        pd.concat([pos, neg_sample], axis=0)
+        .sample(frac=1, random_state=random_state)
+        .reset_index(drop=True)
+    )
+
+    print("\n[Task A] Using downsampled data:", Xy_small.shape)
+    print("[Task A] Downsampled class balance:\n",
+          Xy_small["y_reordered_next"].value_counts(normalize=True))
+
+    X = Xy_small.drop(columns=["y_reordered_next"])
+    y = Xy_small["y_reordered_next"]
+
+    # Identify columns
+    num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+    cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+    # Sparse-friendly preprocessor (fast linear models)
+    num_sparse = Pipeline([
+        ("imp", SimpleImputer(strategy="constant", fill_value=0)),
+        ("sc", StandardScaler(with_mean=False))
+    ])
+    cat_sparse = Pipeline([
+        ("imp", SimpleImputer(strategy="most_frequent")),
+        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
+    ])
+    preproc_sparse = ColumnTransformer(
+        transformers=[("num", num_sparse, num_cols), ("cat", cat_sparse, cat_cols)],
+        remainder="drop"
+    )
+
+    # Dense preprocessor (for heavy models: kNN/Tree/RF/HistGB)
+    num_dense = Pipeline([
+        ("imp", SimpleImputer(strategy="median")),
+        ("sc", StandardScaler())
+    ])
+    cat_dense = Pipeline([
+        ("imp", SimpleImputer(strategy="most_frequent")),
+        ("ord", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
+    ])
+    preproc_dense = ColumnTransformer(
+        transformers=[("num", num_dense, num_cols), ("cat", cat_dense, cat_cols)],
+        remainder="drop"
+    )
+
+    # Split
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=random_state, stratify=y
+    )
+
+    results = []
+
+    # ---------- FAST models (train on FULL train split) ----------
+    fast_models = [
+        ("LogReg", preproc_sparse, LogisticRegression(max_iter=2000, class_weight="balanced")),
+        ("SGD_LogLoss", preproc_sparse, SGDClassifier(loss="log_loss", class_weight="balanced", random_state=random_state)),
+        ("LinearSVC", preproc_sparse, LinearSVC(class_weight="balanced", random_state=random_state)),
+        ("BernoulliNB", preproc_sparse, BernoulliNB())
+    ]
+
+    for name, prep, clf in fast_models:
+        pipe = Pipeline([("prep", prep), ("model", clf)])
+        pipe.fit(X_train, y_train)
+
+        y_pred = pipe.predict(X_val)
+        score = _get_score(pipe, X_val)
+
+        results.append([
+            name,
+            accuracy_score(y_val, y_pred),
+            precision_score(y_val, y_pred, zero_division=0),
+            recall_score(y_val, y_pred, zero_division=0),
+            f1_score(y_val, y_pred, zero_division=0),
+            roc_auc_score(y_val, score),
+            average_precision_score(y_val, score),
+            f"full_train({len(X_train)})"
+        ])
+        print(f"[Task A] Done: {name}")
+
+    # ---------- HEAVY models (train on SUBSAMPLE only) ----------
+    n_heavy = min(heavy_sample, len(X_train))
+    rng = np.random.RandomState(random_state)
+    heavy_idx = rng.choice(len(X_train), size=n_heavy, replace=False)
+
+    X_train_h = X_train.iloc[heavy_idx]
+    y_train_h = y_train.iloc[heavy_idx]
+
+    heavy_models = [
+        ("kNN", preproc_dense, KNeighborsClassifier(n_neighbors=15)),
+        ("DecisionTree", preproc_dense,
+         DecisionTreeClassifier(max_depth=12, random_state=random_state, class_weight="balanced")),
+        ("RandomForest", preproc_dense,
+         RandomForestClassifier(n_estimators=120, random_state=random_state, n_jobs=-1,
+                                class_weight="balanced_subsample")),
+        ("HistGB", preproc_dense, HistGradientBoostingClassifier(random_state=random_state))
+    ]
+
+    for name, prep, clf in heavy_models:
+        pipe = Pipeline([("prep", prep), ("model", clf)])
+        pipe.fit(X_train_h, y_train_h)
+
+        y_pred = pipe.predict(X_val)
+        score = _get_score(pipe, X_val)
+
+        results.append([
+            name,
+            accuracy_score(y_val, y_pred),
+            precision_score(y_val, y_pred, zero_division=0),
+            recall_score(y_val, y_pred, zero_division=0),
+            f1_score(y_val, y_pred, zero_division=0),
+            roc_auc_score(y_val, score),
+            average_precision_score(y_val, score),
+            f"sub_train({n_heavy})"
+        ])
+        print(f"[Task A] Done: {name}")
+
+    df = pd.DataFrame(
+        results,
+        columns=["Model", "Accuracy", "Precision", "Recall", "F1", "ROC_AUC", "PR_AUC", "TrainSize"]
+    ).sort_values(by="PR_AUC", ascending=False).reset_index(drop=True)
+
+    print("\n=== Task A Model Comparison (sorted by PR_AUC) ===")
+    print(df)
+    return df
+
+
+# =========================
+# TASK B — Regression: full suite (fix HistGB sparse issue)
+# =========================
+def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
+
+    X = X_reg.drop(columns=["target_days_to_next_order"]).copy()
+    y = X_reg["target_days_to_next_order"].copy()
+
+    # Treat time-like as categorical
+    if "order_dow" in X.columns:
+        X["order_dow"] = X["order_dow"].astype("category")
+    if "order_hour_of_day" in X.columns:
+        X["order_hour_of_day"] = X["order_hour_of_day"].astype("category")
+
+    num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+    cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+    # ---- Sparse preprocessor (default for most models) ----
+    num_pipe = Pipeline([
+        ("imp", SimpleImputer(strategy="median")),
+        ("sc", StandardScaler())
+    ])
+    cat_pipe_sparse = Pipeline([
+        ("imp", SimpleImputer(strategy="most_frequent")),
+        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
+    ])
+    preproc_sparse = ColumnTransformer(
+        transformers=[("num", num_pipe, num_cols), ("cat", cat_pipe_sparse, cat_cols)],
+        remainder="drop"
+    )
+
+    # ---- Dense preprocessor (for HistGBReg ONLY; it needs dense X) ----
+    cat_pipe_dense = Pipeline([
+        ("imp", SimpleImputer(strategy="most_frequent")),
+        ("ord", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
+    ])
+    preproc_dense = ColumnTransformer(
+        transformers=[("num", num_pipe, num_cols), ("cat", cat_pipe_dense, cat_cols)],
+        remainder="drop"
+    )
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=random_state
+    )
+
+    models = [
+        ("LinearRegression", "sparse", LinearRegression()),
+        ("Ridge", "sparse", Ridge(alpha=1.0, random_state=random_state)),
+        ("Lasso", "sparse", Lasso(alpha=0.001, random_state=random_state)),
+        ("kNN_Reg", "sparse", KNeighborsRegressor(n_neighbors=25)),
+        ("DecisionTreeReg", "sparse", DecisionTreeRegressor(max_depth=12, random_state=random_state)),
+        ("RandomForestReg", "sparse", RandomForestRegressor(n_estimators=200, random_state=random_state, n_jobs=-1)),
+        ("HistGBReg", "dense", HistGradientBoostingRegressor(random_state=random_state)),
+        ("SVR_RBF", "sparse", SVR(C=5.0, epsilon=1.0)),
+    ]
+
+    results = []
+    for name, mode, reg in models:
+
+        prep = preproc_dense if mode == "dense" else preproc_sparse
+        pipe = Pipeline([("prep", prep), ("model", reg)])
+
+        # SVR can be slow -> train on subset only
+        if name == "SVR_RBF":
+            n_svr = min(svr_sample, len(X_train))
+            rng = np.random.RandomState(random_state)
+            idx = rng.choice(len(X_train), size=n_svr, replace=False)
+            pipe.fit(X_train.iloc[idx], y_train.iloc[idx])
+            y_pred = pipe.predict(X_val)
+            train_note = f"sub_train({n_svr})"
+        else:
+            pipe.fit(X_train, y_train)
+            y_pred = pipe.predict(X_val)
+            train_note = f"full_train({len(X_train)})"
+
+        mae = mean_absolute_error(y_val, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+        r2 = r2_score(y_val, y_pred)
+
+        results.append([name, mae, rmse, r2, train_note])
+        print(f"[Task B] Done: {name}")
+
+    df = pd.DataFrame(results, columns=["Model", "MAE", "RMSE", "R2", "TrainSize"])
+    df = df.sort_values(by="MAE", ascending=True).reset_index(drop=True)
+
+    print("\n=== Task B Model Comparison (sorted by MAE) ===")
+    print(df)
+    return df
+
+
+# =========================
+# RUN BOTH SUITES
+# =========================
+taskA_results = run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42)
+taskB_results = run_taskB_suite(X_reg, random_state=42, svr_sample=30000)
+# =========================
+# STEP 5 — Hyperparameter Tuning + (Time-aware split for Task B when possible)
+# Paste هذا الجزء بعد Step 4 مباشرة (بعد ما يكون عندك Xy_cls و X_reg جاهزين)
+# =========================
+
+import numpy as np
+import pandas as pd
+
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, RandomizedSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
+from sklearn.impute import SimpleImputer
+
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+from sklearn.metrics import (
+    average_precision_score, roc_auc_score,
+    mean_absolute_error, mean_squared_error, r2_score
+)
+
+# -------------------------
+# Helper: downsample Task A (مثل اللي عندك) عشان التونينغ ما يطول
+# -------------------------
+def _downsample_taskA(Xy_cls, neg_ratio=5, random_state=42):
+    pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
+    neg = Xy_cls[Xy_cls["y_reordered_next"] == 0]
+    neg_sample = neg.sample(n=min(len(pos) * neg_ratio, len(neg)), random_state=random_state)
+
+    Xy_small = (
+        pd.concat([pos, neg_sample], axis=0)
+        .sample(frac=1, random_state=random_state)
+        .reset_index(drop=True)
+    )
+    return Xy_small
+
+
+# =========================
+# TASK A — Tune HistGBClassifier (أفضل موديل عندك غالباً)
+# Dense-only preprocessing (Ordinal for categories) عشان HistGB ما يحب sparse
+# =========================
+def tune_taskA_histgb(
+    Xy_cls,
+    neg_ratio=5,
+    train_cap=250_000,         # سقف لحجم التدريب لتخفيف الوقت
+    random_state=42,
+    n_iter=20,                 # عدد تجارب التونينغ (خفيف)
+):
+    Xy_small = _downsample_taskA(Xy_cls, neg_ratio=neg_ratio, random_state=random_state)
+
+    print("\n[Task A - Tuning] downsampled:", Xy_small.shape)
+    print("[Task A - Tuning] class balance:\n", Xy_small["y_reordered_next"].value_counts(normalize=True))
+
+    X = Xy_small.drop(columns=["y_reordered_next"])
+    y = Xy_small["y_reordered_next"]
+
+    # أعمدة
+    num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+    cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+    # Dense preprocessor (HistGB يحتاج dense)
+    num_dense = Pipeline([
+        ("imp", SimpleImputer(strategy="median")),
+        ("sc", StandardScaler())
+    ])
+    cat_dense = Pipeline([
+        ("imp", SimpleImputer(strategy="most_frequent")),
+        ("ord", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
+    ])
+
+    preproc_dense = ColumnTransformer(
+        transformers=[("num", num_dense, num_cols), ("cat", cat_dense, cat_cols)],
+        remainder="drop"
+    )
+
+    # Split
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=random_state, stratify=y
+    )
+
+    # قص التدريب (لتسريع التونينغ)
+    if len(X_train) > train_cap:
+        rng = np.random.RandomState(random_state)
+        idx = rng.choice(len(X_train), size=train_cap, replace=False)
+        X_train = X_train.iloc[idx]
+        y_train = y_train.iloc[idx]
+        print(f"[Task A - Tuning] Training capped to: {train_cap}")
+
+    model = HistGradientBoostingClassifier(random_state=random_state)
+
+    pipe = Pipeline([
+        ("prep", preproc_dense),
+        ("model", model)
+    ])
+
+    # مساحة بحث خفيفة
+    param_dist = {
+        "model__learning_rate": [0.03, 0.05, 0.08, 0.1],
+        "model__max_depth": [3, 4, 6, 8, None],
+        "model__max_iter": [200, 300, 500],
+        "model__min_samples_leaf": [20, 50, 100, 200],
+        "model__l2_regularization": [0.0, 0.1, 0.5, 1.0],
+    }
+
+    # PR-AUC هو الأفضل مع عدم توازن الكلاسات
+    search = RandomizedSearchCV(
+        estimator=pipe,
+        param_distributions=param_dist,
+        n_iter=n_iter,
+        scoring="average_precision",
+        cv=3,
+        verbose=1,
+        n_jobs=-1,
+        random_state=random_state
+    )
+
+    search.fit(X_train, y_train)
+
+    best_pipe = search.best_estimator_
+    print("\n[Task A - Tuning] Best params:\n", search.best_params_)
+    print("[Task A - Tuning] Best CV PR-AUC:", search.best_score_)
+
+    # تقييم على validation
+    y_pred = best_pipe.predict(X_val)
+    # continuous score for AUCs
+    if hasattr(best_pipe, "predict_proba"):
+        score = best_pipe.predict_proba(X_val)[:, 1]
+    else:
+        score = best_pipe.decision_function(X_val)
+
+    pr_auc = average_precision_score(y_val, score)
+    roc_auc = roc_auc_score(y_val, score)
+
+    print("\n[Task A - Tuning] Validation PR-AUC:", pr_auc)
+    print("[Task A - Tuning] Validation ROC-AUC:", roc_auc)
+
+    return best_pipe, search.best_params_, {"val_pr_auc": pr_auc, "val_roc_auc": roc_auc}
+
+
+# =========================
+# TASK B — Tune HistGBRegressor + Time-aware split (إذا نقدر)
+# - إذا عندك عمود order_number أو order_id: بنعمل split "زمني" تقريبي
+# - غير هيك: بنرجع split عادي ونطبع ملاحظة
+# =========================
+def tune_taskB_histgb(
+    X_reg,
+    random_state=42,
+    n_iter=25,
+):
+    X = X_reg.drop(columns=["target_days_to_next_order"]).copy()
+    y = X_reg["target_days_to_next_order"].copy()
+
+    # خلي الوقت كـ categorical
+    for c in ["order_dow", "order_hour_of_day"]:
+        if c in X.columns:
+            X[c] = X[c].astype("category")
+
+    # محاولة ترتيب زمني
+    time_col = None
+    if "order_number" in X.columns:
+        time_col = "order_number"
+    elif "order_id" in X.columns:
+        time_col = "order_id"
+
+    if time_col is not None:
+        order_idx = np.argsort(X[time_col].values)
+        X = X.iloc[order_idx].reset_index(drop=True)
+        y = y.iloc[order_idx].reset_index(drop=True)
+        print(f"\n[Task B - Tuning] Using time-aware ordering by: {time_col}")
+        tscv = TimeSeriesSplit(n_splits=3)
+        cv_used = tscv
+    else:
+        print("\n[Task B - Tuning] NOTE: No order_number/order_id found -> using normal CV (not time-aware).")
+        cv_used = 3
+
+    num_cols = X.select_dtypes(include=["number"]).columns.tolist()
+    cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+    # Dense preprocessor (HistGBReg يحتاج dense)
+    num_pipe = Pipeline([
+        ("imp", SimpleImputer(strategy="median")),
+        ("sc", StandardScaler())
+    ])
+    cat_pipe_dense = Pipeline([
+        ("imp", SimpleImputer(strategy="most_frequent")),
+        ("ord", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
+    ])
+
+    preproc_dense = ColumnTransformer(
+        transformers=[("num", num_pipe, num_cols), ("cat", cat_pipe_dense, cat_cols)],
+        remainder="drop"
+    )
+
+    model = HistGradientBoostingRegressor(random_state=random_state)
+    pipe = Pipeline([
+        ("prep", preproc_dense),
+        ("model", model)
+    ])
+
+    # مساحة بحث
+    param_dist = {
+        "model__learning_rate": [0.03, 0.05, 0.08, 0.1],
+        "model__max_depth": [3, 4, 6, 8, None],
+        "model__max_iter": [200, 300, 500],
+        "model__min_samples_leaf": [20, 50, 100, 200],
+        "model__l2_regularization": [0.0, 0.1, 0.5, 1.0],
+    }
+
+    search = RandomizedSearchCV(
+        estimator=pipe,
+        param_distributions=param_dist,
+        n_iter=n_iter,
+        scoring="neg_mean_absolute_error",  # نريد MAE أقل
+        cv=cv_used,
+        verbose=1,
+        n_jobs=-1,
+        random_state=random_state
+    )
+
+    search.fit(X, y)
+
+    best_pipe = search.best_estimator_
+    print("\n[Task B - Tuning] Best params:\n", search.best_params_)
+    print("[Task B - Tuning] Best CV MAE:", -search.best_score_)
+
+    # تقييم بسيط على آخر 20% (time-aware holdout إذا عندنا time_col)
+    split_point = int(len(X) * 0.8)
+    X_train, X_val = X.iloc[:split_point], X.iloc[split_point:]
+    y_train, y_val = y.iloc[:split_point], y.iloc[split_point:]
+
+    best_pipe.fit(X_train, y_train)
+    y_pred = best_pipe.predict(X_val)
+
+    mae = mean_absolute_error(y_val, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+    r2 = r2_score(y_val, y_pred)
+
+    print("\n[Task B - Tuning] Holdout (last 20%) MAE :", mae)
+    print("[Task B - Tuning] Holdout (last 20%) RMSE:", rmse)
+    print("[Task B - Tuning] Holdout (last 20%) R2  :", r2)
+
+    return best_pipe, search.best_params_, {"holdout_mae": mae, "holdout_rmse": rmse, "holdout_r2": r2}
+
+
+# =========================
+# RUN STEP 5 (TUNING)
+# =========================
+bestA_pipe, bestA_params, bestA_metrics = tune_taskA_histgb(
+    Xy_cls,
+    neg_ratio=5,
+    train_cap=250_000,
+    random_state=42,
+    n_iter=20
+)
+
+bestB_pipe, bestB_params, bestB_metrics = tune_taskB_histgb(
+    X_reg,
+    random_state=42,
+    n_iter=25
+)
+
+print("\n===== STEP 5 SUMMARY =====")
+print("[Task A] best params:", bestA_params)
+print("[Task A] val metrics:", bestA_metrics)
+print("[Task B] best params:", bestB_params)
+print("[Task B] holdout metrics:", bestB_metrics)
