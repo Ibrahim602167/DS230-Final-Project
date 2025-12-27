@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-import os
+
 
 # =========================
 # LOAD DATA (your original)
@@ -679,10 +679,6 @@ print("PR-AUC   :", average_precision_score(y_val, y_pred_proba))
 # Paste this whole block at "Step 4" and run ONLY this block (not the whole file)
 # Requires: Xy_cls, X_reg already created above
 # =========================
-
-import numpy as np
-import pandas as pd
-
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
@@ -959,17 +955,10 @@ taskB_results = run_taskB_suite(X_reg, random_state=42, svr_sample=30000)
 # STEP 5 — Hyperparameter Tuning + (Time-aware split for Task B when possible)
 # Paste هذا الجزء بعد Step 4 مباشرة (بعد ما يكون عندك Xy_cls و X_reg جاهزين)
 # =========================
-
-import numpy as np
-import pandas as pd
-
 from sklearn.model_selection import train_test_split, TimeSeriesSplit, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
 from sklearn.impute import SimpleImputer
-
-from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.metrics import (
     average_precision_score, roc_auc_score,
     mean_absolute_error, mean_squared_error, r2_score
@@ -1077,7 +1066,7 @@ def tune_taskA_histgb(
     print("[Task A - Tuning] Best CV PR-AUC:", search.best_score_)
 
     # تقييم على validation
-    y_pred = best_pipe.predict(X_val)
+   
     # continuous score for AUCs
     if hasattr(best_pipe, "predict_proba"):
         score = best_pipe.predict_proba(X_val)[:, 1]
@@ -1220,3 +1209,475 @@ print("[Task A] best params:", bestA_params)
 print("[Task A] val metrics:", bestA_metrics)
 print("[Task B] best params:", bestB_params)
 print("[Task B] holdout metrics:", bestB_metrics)
+# =========================
+# STEP 6 — SHAP EXPLAINABILITY (Task A + Task B) [ROBUST]
+# =========================
+import shap
+from scipy import sparse
+
+
+
+# ---------- helpers ----------
+def _to_dense(X):
+    return X.toarray() if sparse.issparse(X) else X
+
+def _get_feature_names(pipe, fallback_n):
+    """Try to get feature names after preprocessing; fallback to f0..fn."""
+    prep = pipe.named_steps["prep"]
+    try:
+        names = prep.get_feature_names_out()
+        return [str(n) for n in names]
+    except Exception:
+        return [f"f{i}" for i in range(fallback_n)]
+
+def _is_tree_model(model):
+    tree_types = (
+        RandomForestClassifier, RandomForestRegressor,
+        HistGradientBoostingClassifier, HistGradientBoostingRegressor,
+        DecisionTreeClassifier, DecisionTreeRegressor
+    )
+    return isinstance(model, tree_types)
+
+def _is_linear_model(model):
+    linear_types = (LogisticRegression, LinearRegression, Ridge, Lasso)
+    return isinstance(model, linear_types)
+
+def _make_shap_summary(best_pipe, X_raw, title, is_classification=False, sample_size=3000):
+    # sample
+    X_s = X_raw.sample(min(sample_size, len(X_raw)), random_state=42).copy()
+
+    # transform
+    X_t = best_pipe.named_steps["prep"].transform(X_s)
+    X_t = _to_dense(X_t)
+
+    # feature names + DataFrame (عشان plot يطلع بأسماء واضحة)
+    feat_names = _get_feature_names(best_pipe, X_t.shape[1])
+    X_t_df = pd.DataFrame(X_t, columns=feat_names)
+
+    model = best_pipe.named_steps["model"]
+
+    # choose explainer
+    if _is_tree_model(model):
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_t_df, check_additivity=False)
+    elif _is_linear_model(model):
+        # LinearExplainer أسرع من Kernel
+        explainer = shap.LinearExplainer(model, X_t_df, feature_perturbation="interventional")
+        shap_values = explainer.shap_values(X_t_df)
+    else:
+        # KernelExplainer بطيء جداً — نخليه صغير جداً
+        bg = shap.sample(X_t_df, 200, random_state=42)
+        explainer = shap.KernelExplainer(model.predict_proba if is_classification and hasattr(model, "predict_proba")
+                                        else model.predict, bg)
+        shap_values = explainer.shap_values(X_t_df.iloc[:200], nsamples=200)
+        X_t_df = X_t_df.iloc[:200]
+
+    # classification: sometimes list per class -> take class 1
+    if is_classification and isinstance(shap_values, list):
+        # عادةً [class0, class1]
+        if len(shap_values) > 1:
+            shap_values = shap_values[1]
+        else:
+            shap_values = shap_values[0]
+
+    # plot
+    shap.summary_plot(shap_values, X_t_df, show=False)
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
+
+
+# =========================
+# Task A — SHAP
+# =========================
+# لازم يكون عندك bestA_pipe جاهز من Step 5
+X_cls_all = Xy_cls.drop(columns=["y_reordered_next"])
+_make_shap_summary(
+    best_pipe=bestA_pipe,
+    X_raw=X_cls_all,
+    title="Task A – SHAP Summary",
+    is_classification=True,
+    sample_size=3000
+)
+
+# =========================
+# Task B — SHAP
+# =========================
+# لازم يكون عندك bestB_pipe جاهز من Step 5
+X_reg_all = X_reg.drop(columns=["target_days_to_next_order"])
+_make_shap_summary(
+    best_pipe=bestB_pipe,
+    X_raw=X_reg_all,
+    title="Task B – SHAP Summary",
+    is_classification=False,
+    sample_size=3000
+)
+# =========================
+# STEP 7 — ROBUSTNESS & STRESS TESTS (FIXED)
+# =========================
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import average_precision_score, mean_absolute_error
+
+# -------------------------
+# Helper: add gaussian noise to numeric cols only
+# -------------------------
+def add_noise(df, sigma=0.05, random_state=42):
+    df_noisy = df.copy()
+    num_cols = df_noisy.select_dtypes(include=["number"]).columns
+    rng = np.random.RandomState(random_state)
+    noise = rng.normal(0, sigma, size=df_noisy[num_cols].shape)
+    df_noisy.loc[:, num_cols] = df_noisy.loc[:, num_cols] + noise
+    return df_noisy
+
+
+# ==========================================================
+# Task A — Noise Robustness (evaluate on a fixed holdout set)
+# ==========================================================
+print("\n[Robustness] Task A - Noise Injection (Holdout)")
+
+# Use same downsampling idea to keep runtime reasonable
+neg_ratio = 5
+random_state = 42
+
+pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
+neg = Xy_cls[Xy_cls["y_reordered_next"] == 0]
+neg_sample = neg.sample(n=min(len(pos) * neg_ratio, len(neg)), random_state=random_state)
+
+Xy_small = (
+    pd.concat([pos, neg_sample], axis=0)
+    .sample(frac=1, random_state=random_state)
+    .reset_index(drop=True)
+)
+
+X_A = Xy_small.drop(columns=["y_reordered_next"])
+y_A = Xy_small["y_reordered_next"]
+
+X_train_A, X_hold_A, y_train_A, y_hold_A = train_test_split(
+    X_A, y_A, test_size=0.2, random_state=random_state, stratify=y_A
+)
+
+# Clean scores
+score_clean = bestA_pipe.predict_proba(X_hold_A)[:, 1]
+pr_clean = average_precision_score(y_hold_A, score_clean)
+
+# Noisy holdout (numeric noise only)
+X_hold_A_noisy = add_noise(X_hold_A, sigma=0.05, random_state=random_state)
+score_noisy = bestA_pipe.predict_proba(X_hold_A_noisy)[:, 1]
+pr_noisy = average_precision_score(y_hold_A, score_noisy)
+
+print(f"PR-AUC (clean): {pr_clean:.6f}")
+print(f"PR-AUC (noisy): {pr_noisy:.6f}")
+print(f"Delta PR-AUC   : {(pr_noisy - pr_clean):.6f}")
+
+
+# ==========================================================
+# Task B — Reduced Training Size (train fractions, fixed test)
+# ==========================================================
+print("\n[Robustness] Task B - Reduced Training Data (Fixed Holdout)")
+
+X_B = X_reg.drop(columns=["target_days_to_next_order"]).copy()
+y_B = X_reg["target_days_to_next_order"].copy()
+
+# Fixed holdout so comparison is fair
+X_train_B, X_hold_B, y_train_B, y_hold_B = train_test_split(
+    X_B, y_B, test_size=0.2, random_state=42
+)
+
+sizes = [0.1, 0.3, 0.5, 1.0]
+maes = []
+
+for frac in sizes:
+    # sample from training only (not from all data)
+    n = int(len(X_train_B) * frac)
+    idx = np.random.RandomState(42).choice(len(X_train_B), size=n, replace=False)
+
+    X_sub = X_train_B.iloc[idx]
+    y_sub = y_train_B.iloc[idx]
+
+    bestB_pipe.fit(X_sub, y_sub)
+    y_pred = bestB_pipe.predict(X_hold_B)
+
+    mae = mean_absolute_error(y_hold_B, y_pred)
+    maes.append(mae)
+
+    print(f"Train size {int(frac*100)}% ({n} rows) -> MAE: {mae:.6f}")
+
+print("\n[Robustness] Task B MAE trend:", list(zip(sizes, maes)))
+# =========================
+# STEP 8 — DECISION BOUNDARIES (Task A)  [FULL REQUIREMENT VERSION]
+# Models: LogReg + SVM(linear) + SVM(RBF) + KNN + DecisionTree
+# 2D projection via TruncatedSVD (works with sparse)
+# =========================
+from sklearn.decomposition import TruncatedSVD
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+
+# ---------- 0) Balanced sample (important بسبب عدم توازن الكلاسات) ----------
+def balanced_sample(df, y_col="y_reordered_next", n_total=8000, random_state=42):
+    df = df.copy()
+    df[y_col] = df[y_col].astype(int)
+
+    n_each = n_total // 2
+    pos = df[df[y_col] == 1]
+    neg = df[df[y_col] == 0]
+
+    n_pos = min(n_each, len(pos))
+    n_neg = min(n_each, len(neg))
+
+    pos_s = pos.sample(n=n_pos, random_state=random_state)
+    neg_s = neg.sample(n=n_neg, random_state=random_state)
+
+    out = (
+        pd.concat([pos_s, neg_s], axis=0)
+        .sample(frac=1, random_state=random_state)
+        .reset_index(drop=True)
+    )
+    return out
+
+X_vis_df = balanced_sample(Xy_cls, y_col="y_reordered_next", n_total=8000, random_state=42)
+
+y_vis = X_vis_df["y_reordered_next"].astype(int).values
+X_vis = X_vis_df.drop(columns=["y_reordered_next"]).copy()
+
+# ---------- 1) Transform using bestA preprocessor ----------
+X_vis_trans = bestA_pipe.named_steps["prep"].transform(X_vis)  # غالباً sparse
+
+# ---------- 2) 2D projection (SVD مناسب للسبرس) ----------
+svd = TruncatedSVD(n_components=2, random_state=42)
+X_2d = svd.fit_transform(X_vis_trans)
+
+# ---------- 3) Models to compare boundaries ----------
+models = [
+    ("LogReg", LogisticRegression(max_iter=2000)),
+    ("SVM Linear", SVC(kernel="linear")),
+    ("SVM RBF", SVC(kernel="rbf", gamma="scale", C=1.0)),
+    ("kNN (k=25)", KNeighborsClassifier(n_neighbors=25)),
+    ("DecisionTree", DecisionTreeClassifier(max_depth=8, random_state=42)),
+]
+
+# ---------- 4) helper for plotting one model ----------
+def plot_boundary(ax, model, X2d, y, title, grid_n=250):
+    model.fit(X2d, y)
+
+    x_min, x_max = X2d[:, 0].min() - 1, X2d[:, 0].max() + 1
+    y_min, y_max = X2d[:, 1].min() - 1, X2d[:, 1].max() + 1
+
+    xx, yy = np.meshgrid(
+        np.linspace(x_min, x_max, grid_n),
+        np.linspace(y_min, y_max, grid_n),
+    )
+
+    Z = model.predict(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
+
+    ax.contourf(xx, yy, Z, alpha=0.25)
+    ax.scatter(X2d[:, 0], X2d[:, 1], c=y, s=10)
+    ax.set_title(title)
+    ax.set_xlabel("Component 1")
+    ax.set_ylabel("Component 2")
+
+# ---------- 5) Plot all boundaries ----------
+fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+axes = axes.ravel()
+
+for i, (name, mdl) in enumerate(models):
+    plot_boundary(axes[i], mdl, X_2d, y_vis, f"Decision Boundary — {name}")
+
+# آخر subplot فاضي (لأن عندنا 5 موديلات)
+axes[-1].axis("off")
+
+plt.tight_layout()
+plt.show()
+
+# =========================
+# STEP 9 — EVALUATION PLOTS (COMPLETE + NO UNDEFINED VARS)
+# - Task A: ROC Curve (single model) + optional ROC overlay (multi models if provided)
+# - Task A: PR Curve (single model) + optional PR overlay (multi models if provided)
+# - Task B: Actual vs Predicted + Residuals plot
+# =========================
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    roc_curve, auc,
+    precision_recall_curve, average_precision_score,
+    mean_absolute_error, mean_squared_error, r2_score
+)
+
+# -----------------------------
+# helper: continuous score for ROC/PR
+# -----------------------------
+def get_score(pipe, X):
+    if hasattr(pipe, "predict_proba"):
+        return pipe.predict_proba(X)[:, 1]
+    if hasattr(pipe, "decision_function"):
+        return pipe.decision_function(X)
+    return pipe.predict(X)
+
+# -----------------------------
+# helper: plot ROC for 1 model
+# -----------------------------
+def plot_roc_one(pipe, X_val, y_val, title="Task A – ROC Curve"):
+    y_score = get_score(pipe, X_val)
+    fpr, tpr, _ = roc_curve(y_val, y_score)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure(figsize=(6, 5))
+    plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.3f}")
+    plt.plot([0, 1], [0, 1], "--")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return roc_auc
+
+# -----------------------------
+# helper: plot ROC overlay for dict of models
+# -----------------------------
+def plot_roc_overlay(models_dict, X_val, y_val, title="Task A – ROC Overlay"):
+    plt.figure(figsize=(7, 5))
+    for name, pipe in models_dict.items():
+        try:
+            y_score = get_score(pipe, X_val)
+            fpr, tpr, _ = roc_curve(y_val, y_score)
+            roc_auc = auc(fpr, tpr)
+            plt.plot(fpr, tpr, label=f"{name} (AUC={roc_auc:.3f})")
+        except Exception as e:
+            print(f"[WARN] ROC overlay skipped for {name}: {e}")
+
+    plt.plot([0, 1], [0, 1], "--")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+# -----------------------------
+# helper: PR curve (one model)
+# -----------------------------
+def plot_pr_one(pipe, X_val, y_val, title="Task A – Precision-Recall Curve"):
+    y_score = get_score(pipe, X_val)
+    precision, recall, _ = precision_recall_curve(y_val, y_score)
+    pr_auc = average_precision_score(y_val, y_score)
+
+    plt.figure(figsize=(6, 5))
+    plt.plot(recall, precision, label=f"PR-AUC = {pr_auc:.3f}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return pr_auc
+
+# -----------------------------
+# helper: PR overlay for dict of models
+# -----------------------------
+def plot_pr_overlay(models_dict, X_val, y_val, title="Task A – PR Overlay"):
+    plt.figure(figsize=(7, 5))
+    for name, pipe in models_dict.items():
+        try:
+            y_score = get_score(pipe, X_val)
+            precision, recall, _ = precision_recall_curve(y_val, y_score)
+            pr_auc = average_precision_score(y_val, y_score)
+            plt.plot(recall, precision, label=f"{name} (PR={pr_auc:.3f})")
+        except Exception as e:
+            print(f"[WARN] PR overlay skipped for {name}: {e}")
+
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+# ============================================================
+# Task A — Prepare a SMALL sample validation set (FAST)
+# ============================================================
+A_SAMPLE = 300000   # 200k–500k حسب جهازك
+VAL_FRAC = 0.2
+
+Xy_A = Xy_cls.sample(n=min(A_SAMPLE, len(Xy_cls)), random_state=42).copy()
+
+X_all_A = Xy_A.drop(columns=["y_reordered_next"])
+y_all_A = Xy_A["y_reordered_next"].astype(int)
+
+X_train_A, X_val_A, y_train_A, y_val_A = train_test_split(
+    X_all_A, y_all_A, test_size=VAL_FRAC, random_state=42, stratify=y_all_A
+)
+
+print("Task A (sample) val shape:", X_val_A.shape, y_val_A.shape)
+
+# ------------------------------------------------------------
+# Task A — SINGLE best model curves
+# ------------------------------------------------------------
+roc_auc_best = plot_roc_one(bestA_pipe, X_val_A, y_val_A, title="Task A – ROC Curve (Best Model)")
+pr_auc_best  = plot_pr_one(bestA_pipe, X_val_A, y_val_A, title="Task A – Precision-Recall Curve (Best Model)")
+
+print(f"[Task A] Best Model ROC-AUC: {roc_auc_best:.4f}")
+print(f"[Task A] Best Model PR-AUC : {pr_auc_best:.4f}")
+
+# ------------------------------------------------------------
+# OPTIONAL: overlays if you *already have* dicts from previous steps
+# (NO undefined-name errors — we only use them if they exist)
+# ------------------------------------------------------------
+models_A = None
+if "taskA_models" in globals() and isinstance(globals().get("taskA_models"), dict) and len(globals()["taskA_models"]) > 0:
+    models_A = globals()["taskA_models"]
+elif "models_A" in globals() and isinstance(globals().get("models_A"), dict) and len(globals()["models_A"]) > 0:
+    models_A = globals()["models_A"]
+
+if models_A is not None:
+    print("[Task A] Running overlay plots for multiple models...")
+    plot_roc_overlay(models_A, X_val_A, y_val_A, title="Task A – ROC Overlay (Multiple Models)")
+    plot_pr_overlay(models_A, X_val_A, y_val_A, title="Task A – PR Overlay (Multiple Models)")
+else:
+    print("[Task A] Overlay skipped: no taskA_models/models_A dict found (this is OK).")
+
+# ============================================================
+# Task B — Evaluation plots (FAST)
+# ============================================================
+Xb = X_reg.drop(columns=["target_days_to_next_order"]).copy()
+yb = X_reg["target_days_to_next_order"].copy()
+
+X_train_B, X_val_B, y_train_B, y_val_B = train_test_split(
+    Xb, yb, test_size=0.2, random_state=42
+)
+
+N_PLOT = min(3000, len(X_val_B))
+Xvp = X_val_B.iloc[:N_PLOT]
+y_true = y_val_B.iloc[:N_PLOT].values
+y_pred = bestB_pipe.predict(Xvp)
+
+mae  = mean_absolute_error(y_true, y_pred)
+rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+r2   = r2_score(y_true, y_pred)
+
+print(f"[Task B] MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f} (on {N_PLOT} val points)")
+
+# ---- Actual vs Predicted
+plt.figure(figsize=(6, 5))
+plt.scatter(y_true, y_pred, alpha=0.25)
+plt.xlabel("Actual Days to Next Order")
+plt.ylabel("Predicted Days to Next Order")
+plt.title("Task B – Actual vs Predicted")
+plt.tight_layout()
+plt.show()
+
+# ---- Residuals plot
+residuals = y_true - y_pred
+plt.figure(figsize=(6, 5))
+plt.scatter(y_pred, residuals, alpha=0.25)
+plt.axhline(0, linestyle="--")
+plt.xlabel("Predicted")
+plt.ylabel("Residual (Actual - Predicted)")
+plt.title("Task B – Residuals vs Predicted")
+plt.tight_layout()
+plt.show()
