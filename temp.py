@@ -1,8 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-
-
 # =========================
 # LOAD DATA (your original)
 # =========================
@@ -1681,3 +1679,4 @@ plt.ylabel("Residual (Actual - Predicted)")
 plt.title("Task B – Residuals vs Predicted")
 plt.tight_layout()
 plt.show()
+
