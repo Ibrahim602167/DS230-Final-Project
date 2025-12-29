@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 # =========================
-# LOAD DATA (your original)
+# LOAD DATA 
 # =========================
 aisles = pd.read_csv("aisles (1).csv")
 departments = pd.read_csv("departments (1).csv")
@@ -12,7 +12,7 @@ order_products_prior = pd.read_csv("order_products__prior.csv (1).zip")
 order_products_train = pd.read_csv("order_products__train.csv (1).zip")
 products = pd.read_csv("products.csv (2).zip")
 
-# ✅ ADDED: show raw shapes (sanity)
+#Show raw shapes (sanity)
 print("aisles:", aisles.shape)
 print("departments:", departments.shape)
 print("orders:", orders.shape)
@@ -20,13 +20,13 @@ print("order_products_prior:", order_products_prior.shape)
 print("order_products_train:", order_products_train.shape)
 print("products:", products.shape)
 
-# ✅ ADDED: quick column check
+#Quick column check
 print("\norders columns:", orders.columns.tolist())
 print("prior columns:", order_products_prior.columns.tolist())
 print("products columns:", products.columns.tolist())
 
 # =========================
-# JOINS (your original)
+# JOINS
 # =========================
 products_full = (
     products
@@ -48,13 +48,13 @@ print("prior_full (after orders):", prior_full.shape)
 print("train_full (after orders):", train_full.shape)
 
 # =========================
-# ✅ MISSING + BASIC EDA COUNTS (your original + small adds)
+#MISSING + BASIC EDA COUNTS
 # =========================
 print("Number of users:", prior_full["user_id"].nunique())
 print("Number of products:", prior_full["product_id"].nunique())
 print("Number of orders:", prior_full["order_id"].nunique())
 
-# ✅ ADDED: Target distribution + plot (required)
+#Target distribution + plot (required)
 reorder_rate = prior_full["reordered"].value_counts(normalize=True)
 print("\nReordered distribution (normalized):\n", reorder_rate)
 
@@ -66,7 +66,7 @@ plt.ylabel("Proportion")
 plt.tight_layout()
 plt.show()
 
-# Existing quick counts (your original)
+# Existing quick counts
 prior_full["order_hour_of_day"].value_counts().sort_index()
 prior_full["order_dow"].value_counts().sort_index()
 
@@ -77,7 +77,7 @@ product_orders = prior_full.groupby("product_id")["order_id"].count()
 product_orders.describe()
 
 # =========================
-# ✅ ADDED: Missing evidence before fill + justification
+#Missing evidence before fill + justification
 # =========================
 print("\nMissing days_since_prior_order ratio BEFORE fill:", prior_full["days_since_prior_order"].isna().mean())
 
@@ -88,7 +88,7 @@ train_full["days_since_prior_order"] = train_full["days_since_prior_order"].fill
 print("Missing days_since_prior_order ratio AFTER  fill:", prior_full["days_since_prior_order"].isna().mean())
 
 # =========================
-# ✅ ADDED: Memory optimization (strong) + evidence
+#Memory optimization (strong) + evidence
 # =========================
 mem_before = prior_full.memory_usage(deep=True).sum() / 1024**2
 print(f"\n[Memory] prior_full BEFORE drop product_name: {mem_before:.2f} MB")
@@ -104,7 +104,7 @@ print(f"[Memory] prior_full AFTER  drop product_name: {mem_after:.2f} MB")
 print(f"[Memory] Saved: {mem_before - mem_after:.2f} MB")
 
 # =========================
-# Downcast (your original)
+# Downcast
 # =========================
 int_cols = ["user_id", "order_id", "product_id",
             "order_number", "add_to_cart_order",
@@ -115,26 +115,26 @@ for col in int_cols:
     if col in train_full.columns:
         train_full[col] = pd.to_numeric(train_full[col], downcast="integer")
 
-# ✅ ADDED: convert repeated strings to category (memory)
+#Convert repeated strings to category (memory)
 for c in ["eval_set", "aisle", "department"]:
     if c in prior_full.columns:
         prior_full[c] = prior_full[c].astype("category")
     if c in train_full.columns:
         train_full[c] = train_full[c].astype("category")
 
-# ✅ ADDED: memory print (evidence)
+#Memory print (evidence)
 prior_mem = prior_full.memory_usage(deep=True).sum() / 1024**2
 train_mem = train_full.memory_usage(deep=True).sum() / 1024**2
 print(f"\nprior_full memory (MB): {prior_mem:.2f}")
 print(f"train_full memory (MB): {train_mem:.2f}")
 
 # =========================
-# Cleaning filters (your original)
+# Cleaning data
 # =========================
 prior_full = prior_full[(prior_full["order_hour_of_day"] >= 0) & (prior_full["order_hour_of_day"] <= 23)]
 prior_full = prior_full[prior_full["days_since_prior_order"] >= 0]
 
-# ✅ ADDED: cleaning checks for required fields
+#Cleaning checks for required fields
 print("\n[Cleaning] order_number min/max:",
       prior_full["order_number"].min(), prior_full["order_number"].max())
 print("[Cleaning] add_to_cart_order min/max:",
@@ -149,7 +149,7 @@ prior_full = prior_full[prior_full["order_number"] > 0]
 prior_full = prior_full[prior_full["add_to_cart_order"] > 0]
 
 # =========================
-# ✅ FIX: missing percent should be *100 not *70
+#Missing percent 
 # =========================
 missing_percent = prior_full.isna().mean() * 100
 missing_percent = missing_percent[missing_percent > 0]
@@ -165,7 +165,7 @@ else:
     print("\nNo missing values after current preprocessing.")
 
 # =========================
-# ✅ ADDED: Cardinality analysis (top-k) - required
+#Cardinality analysis
 # =========================
 top_products = prior_full["product_id"].value_counts().head(10)
 plt.figure(figsize=(7,4))
@@ -205,7 +205,7 @@ for c in ["user_id", "product_id", "aisle_id", "department_id", "aisle", "depart
         print(f" - {c}: {prior_full[c].nunique()}")
 
 # =========================
-# Numeric distributions (your original)
+# Numeric distributions
 # =========================
 numeric_cols = ["add_to_cart_order","days_since_prior_order", "order_number"]
 for col in numeric_cols:
@@ -218,7 +218,7 @@ for col in numeric_cols:
     plt.show()
 
 # =========================
-# ✅ ADDED: Boxplots (outlier detection) + Outlier treatment (required)
+#Boxplots (outlier detection) + Outlier treatment (required)
 # -------------------------
 # First: BEFORE treatment (optional view)
 for col in numeric_cols:
@@ -249,7 +249,7 @@ for col in numeric_cols:
     plt.show()
 
 # =========================
-# Categorical counts (your original)
+# Categorical counts
 # =========================
 categorical_cols = ["order_dow", "order_hour_of_day"]
 for col in categorical_cols:
@@ -263,7 +263,7 @@ for col in categorical_cols:
     plt.show()
 
 # =========================
-# ✅ ADDED: Pairwise scatter (required) - small sample to be fast
+#Pairwise scatter (required) - small sample to be fast
 # =========================
 sample_df = prior_full[["order_number", "add_to_cart_order", "days_since_prior_order"]].sample(
     n=min(5000, len(prior_full)), random_state=42
@@ -289,7 +289,7 @@ plt.tight_layout()
 plt.show()
 
 # =========================
-# Seasonality (your original)
+# Seasonality
 # =========================
 hour_counts = prior_full["order_hour_of_day"].value_counts().sort_index()
 plt.figure(figsize=(6,4))
@@ -310,7 +310,7 @@ plt.tight_layout()
 plt.show()
 
 # =========================
-# ✅ ADDED: Monthly seasonality note (dataset limitation)
+#Monthly seasonality note (dataset limitation)
 # =========================
 print("\n[Seasonality] Monthly seasonality plot is NOT available because there is no timestamp/month field in the dataset "
       "(orders has order_dow and order_hour_of_day only).")
@@ -1679,4 +1679,3 @@ plt.ylabel("Residual (Actual - Predicted)")
 plt.title("Task B – Residuals vs Predicted")
 plt.tight_layout()
 plt.show()
-
