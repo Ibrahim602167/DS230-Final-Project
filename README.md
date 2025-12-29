@@ -1,4 +1,4 @@
-Machine Learning Project: Classification and Regression of User Purchasing Behavior
+# Machine Learning Project: Classification and Regression of User Purchasing Behavior
 
 Project Overview: This project focuses on building and evaluating machine learning models for classification and regression tasks using user purchasing behavior data. The goal is to predict product reordering behavior (classification) and estimate the number of days remaining until the next order (regression) by following an integrated machine learning path.
 
@@ -14,10 +14,10 @@ Final Report: The final report, available in PDF format, provides a detailed exp
 
 Team Members and Their Contributions
 
-Raed Al-Quraan - 50%
+### Raed Al-Quraan - 50%
 Exploration Data Analysis (Collaborative Work): Completing and refining classification and regression paths, interpretation and analysis using SHAP, robustness and endurance testing, decision limits, visualization, required graphs and visualizations, writing and organizing the final report (PDF).
 
-Ibrahim Hassan Obaidat - 50%
+### Ibrahim Hassan Obaidat - 50%
 Exploration Data Analysis (Collaborative Work): Feature engineering, initial setup of classification and regression models, hyperparameter adjustment and cross-validation, model comparison, continuous monitoring of the project's workflow and debugging to ensure there are no flaws in the project structure.
 
 Conclusion: This project demonstrates an integrated machine learning workflow that combines predictive modeling, evaluation, interpretation, and robustness analysis, ensuring the models' performance and transparency.
