@@ -263,7 +263,7 @@ for col in categorical_cols:
     plt.show()
 
 # =========================
-#Pairwise scatter (required) - small sample to be fast
+#Pairwise scatter (required)
 # =========================
 sample_df = prior_full[["order_number", "add_to_cart_order", "days_since_prior_order"]].sample(
     n=min(5000, len(prior_full)), random_state=42
@@ -277,7 +277,7 @@ plt.tight_layout()
 plt.show()
 
 # =========================
-# Correlation (your original)
+# Correlation
 # =========================
 corr = prior_full[numeric_cols].corr()
 plt.figure(figsize=(5,4))
@@ -1410,41 +1410,31 @@ print("\n[Robustness] Task B MAE trend:", list(zip(sizes, maes)))
 from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-
 # ---------- 0) Balanced sample (important بسبب عدم توازن الكلاسات) ----------
 def balanced_sample(df, y_col="y_reordered_next", n_total=8000, random_state=42):
     df = df.copy()
     df[y_col] = df[y_col].astype(int)
-
     n_each = n_total // 2
     pos = df[df[y_col] == 1]
     neg = df[df[y_col] == 0]
-
     n_pos = min(n_each, len(pos))
     n_neg = min(n_each, len(neg))
-
     pos_s = pos.sample(n=n_pos, random_state=random_state)
     neg_s = neg.sample(n=n_neg, random_state=random_state)
-
     out = (
         pd.concat([pos_s, neg_s], axis=0)
         .sample(frac=1, random_state=random_state)
         .reset_index(drop=True)
     )
     return out
-
 X_vis_df = balanced_sample(Xy_cls, y_col="y_reordered_next", n_total=8000, random_state=42)
-
 y_vis = X_vis_df["y_reordered_next"].astype(int).values
 X_vis = X_vis_df.drop(columns=["y_reordered_next"]).copy()
-
 # ---------- 1) Transform using bestA preprocessor ----------
 X_vis_trans = bestA_pipe.named_steps["prep"].transform(X_vis)  # غالباً sparse
-
 # ---------- 2) 2D projection (SVD مناسب للسبرس) ----------
 svd = TruncatedSVD(n_components=2, random_state=42)
 X_2d = svd.fit_transform(X_vis_trans)
-
 # ---------- 3) Models to compare boundaries ----------
 models = [
     ("LogReg", LogisticRegression(max_iter=2000)),
@@ -1453,7 +1443,6 @@ models = [
     ("kNN (k=25)", KNeighborsClassifier(n_neighbors=25)),
     ("DecisionTree", DecisionTreeClassifier(max_depth=8, random_state=42)),
 ]
-
 # ---------- 4) helper for plotting one model ----------
 def plot_boundary(ax, model, X2d, y, title, grid_n=250):
     model.fit(X2d, y)
@@ -1467,43 +1456,35 @@ def plot_boundary(ax, model, X2d, y, title, grid_n=250):
     )
 
     Z = model.predict(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
-
     ax.contourf(xx, yy, Z, alpha=0.25)
     ax.scatter(X2d[:, 0], X2d[:, 1], c=y, s=10)
     ax.set_title(title)
     ax.set_xlabel("Component 1")
     ax.set_ylabel("Component 2")
-
 # ---------- 5) Plot all boundaries ----------
 fig, axes = plt.subplots(2, 3, figsize=(14, 8))
 axes = axes.ravel()
-
 for i, (name, mdl) in enumerate(models):
     plot_boundary(axes[i], mdl, X_2d, y_vis, f"Decision Boundary — {name}")
 
 # آخر subplot فاضي (لأن عندنا 5 موديلات)
 axes[-1].axis("off")
-
 plt.tight_layout()
 plt.show()
-
 # =========================
 # STEP 9 — EVALUATION PLOTS (COMPLETE + NO UNDEFINED VARS)
 # - Task A: ROC Curve (single model) + optional ROC overlay (multi models if provided)
 # - Task A: PR Curve (single model) + optional PR overlay (multi models if provided)
 # - Task B: Actual vs Predicted + Residuals plot
 # =========================
-
 import numpy as np
 import matplotlib.pyplot as plt
-
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     roc_curve, auc,
     precision_recall_curve, average_precision_score,
     mean_absolute_error, mean_squared_error, r2_score
 )
-
 # -----------------------------
 # helper: continuous score for ROC/PR
 # -----------------------------
@@ -1513,7 +1494,6 @@ def get_score(pipe, X):
     if hasattr(pipe, "decision_function"):
         return pipe.decision_function(X)
     return pipe.predict(X)
-
 # -----------------------------
 # helper: plot ROC for 1 model
 # -----------------------------
@@ -1521,7 +1501,6 @@ def plot_roc_one(pipe, X_val, y_val, title="Task A – ROC Curve"):
     y_score = get_score(pipe, X_val)
     fpr, tpr, _ = roc_curve(y_val, y_score)
     roc_auc = auc(fpr, tpr)
-
     plt.figure(figsize=(6, 5))
     plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.3f}")
     plt.plot([0, 1], [0, 1], "--")
@@ -1533,7 +1512,6 @@ def plot_roc_one(pipe, X_val, y_val, title="Task A – ROC Curve"):
     plt.show()
 
     return roc_auc
-
 # -----------------------------
 # helper: plot ROC overlay for dict of models
 # -----------------------------
@@ -1547,7 +1525,6 @@ def plot_roc_overlay(models_dict, X_val, y_val, title="Task A – ROC Overlay"):
             plt.plot(fpr, tpr, label=f"{name} (AUC={roc_auc:.3f})")
         except Exception as e:
             print(f"[WARN] ROC overlay skipped for {name}: {e}")
-
     plt.plot([0, 1], [0, 1], "--")
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
@@ -1555,7 +1532,6 @@ def plot_roc_overlay(models_dict, X_val, y_val, title="Task A – ROC Overlay"):
     plt.legend()
     plt.tight_layout()
     plt.show()
-
 # -----------------------------
 # helper: PR curve (one model)
 # -----------------------------
@@ -1563,7 +1539,6 @@ def plot_pr_one(pipe, X_val, y_val, title="Task A – Precision-Recall Curve"):
     y_score = get_score(pipe, X_val)
     precision, recall, _ = precision_recall_curve(y_val, y_score)
     pr_auc = average_precision_score(y_val, y_score)
-
     plt.figure(figsize=(6, 5))
     plt.plot(recall, precision, label=f"PR-AUC = {pr_auc:.3f}")
     plt.xlabel("Recall")
@@ -1574,7 +1549,6 @@ def plot_pr_one(pipe, X_val, y_val, title="Task A – Precision-Recall Curve"):
     plt.show()
 
     return pr_auc
-
 # -----------------------------
 # helper: PR overlay for dict of models
 # -----------------------------
@@ -1588,31 +1562,25 @@ def plot_pr_overlay(models_dict, X_val, y_val, title="Task A – PR Overlay"):
             plt.plot(recall, precision, label=f"{name} (PR={pr_auc:.3f})")
         except Exception as e:
             print(f"[WARN] PR overlay skipped for {name}: {e}")
-
     plt.xlabel("Recall")
     plt.ylabel("Precision")
     plt.title(title)
     plt.legend()
     plt.tight_layout()
     plt.show()
-
 # ============================================================
 # Task A — Prepare a SMALL sample validation set (FAST)
 # ============================================================
 A_SAMPLE = 300000   # 200k–500k حسب جهازك
 VAL_FRAC = 0.2
-
 Xy_A = Xy_cls.sample(n=min(A_SAMPLE, len(Xy_cls)), random_state=42).copy()
-
 X_all_A = Xy_A.drop(columns=["y_reordered_next"])
 y_all_A = Xy_A["y_reordered_next"].astype(int)
 
 X_train_A, X_val_A, y_train_A, y_val_A = train_test_split(
     X_all_A, y_all_A, test_size=VAL_FRAC, random_state=42, stratify=y_all_A
 )
-
 print("Task A (sample) val shape:", X_val_A.shape, y_val_A.shape)
-
 # ------------------------------------------------------------
 # Task A — SINGLE best model curves
 # ------------------------------------------------------------
@@ -1638,28 +1606,22 @@ if models_A is not None:
     plot_pr_overlay(models_A, X_val_A, y_val_A, title="Task A – PR Overlay (Multiple Models)")
 else:
     print("[Task A] Overlay skipped: no taskA_models/models_A dict found (this is OK).")
-
 # ============================================================
 # Task B — Evaluation plots (FAST)
 # ============================================================
 Xb = X_reg.drop(columns=["target_days_to_next_order"]).copy()
 yb = X_reg["target_days_to_next_order"].copy()
-
 X_train_B, X_val_B, y_train_B, y_val_B = train_test_split(
     Xb, yb, test_size=0.2, random_state=42
 )
-
 N_PLOT = min(3000, len(X_val_B))
 Xvp = X_val_B.iloc[:N_PLOT]
 y_true = y_val_B.iloc[:N_PLOT].values
 y_pred = bestB_pipe.predict(Xvp)
-
 mae  = mean_absolute_error(y_true, y_pred)
 rmse = np.sqrt(mean_squared_error(y_true, y_pred))
 r2   = r2_score(y_true, y_pred)
-
 print(f"[Task B] MAE={mae:.4f} | RMSE={rmse:.4f} | R2={r2:.4f} (on {N_PLOT} val points)")
-
 # ---- Actual vs Predicted
 plt.figure(figsize=(6, 5))
 plt.scatter(y_true, y_pred, alpha=0.25)
@@ -1668,7 +1630,6 @@ plt.ylabel("Predicted Days to Next Order")
 plt.title("Task B – Actual vs Predicted")
 plt.tight_layout()
 plt.show()
-
 # ---- Residuals plot
 residuals = y_true - y_pred
 plt.figure(figsize=(6, 5))
