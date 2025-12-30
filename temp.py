@@ -314,7 +314,7 @@ plt.show()
 # =========================
 print("\n[Seasonality] Monthly seasonality plot is NOT available because there is no timestamp/month field in the dataset "
       "(orders has order_dow and order_hour_of_day only).")
-# 1) total #orders per user
+# 1) total orders per user
 user_total_orders_df = (
     prior_full.groupby("user_id")["order_id"]
     .nunique()
@@ -372,7 +372,7 @@ print(user_features_df.head())
 # B) PRODUCT-LEVEL FEATURES
 # ----------------------------
 
-# 1) overall #orders (popularity)
+# 1) overall orders (popularity)
 prod_orders_df = (
     prior_full.groupby("product_id")["order_id"]
     .count()
