@@ -14,7 +14,7 @@ Final Report: The final report, available in PDF format, provides a detailed exp
 
 Team Members and Their Contributions
 
-### Raed Al-Quraan - 50%
+### Shahed Al-Quraan - 50%
 Exploration Data Analysis (Collaborative Work): Completing and refining classification and regression paths, interpretation and analysis using SHAP, robustness and endurance testing, decision limits, visualization, required graphs and visualizations, writing and organizing the final report (PDF).
 
 ### Ibrahim Hassan Obaidat - 50%
