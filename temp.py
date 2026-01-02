@@ -533,7 +533,7 @@ print("- fe_user_product_features.csv")
 print("- dataset_taskA_classification.csv")
 print("- dataset_taskB_regression.csv")
 # =========================
-# STEP 3 (Task B - Regression)  — ADD THIS AT THE END OF YOUR ORIGINAL FILE
+# STEP 3 (Task B - Regression)
 # =========================
 
 from sklearn.model_selection import train_test_split
@@ -544,16 +544,16 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # ===== تجهيز X و y =====
-X = X_reg.drop(columns=["target_days_to_next_order"])
+X = X_reg.drop(columns=["target_days_to_next_order"])#يبقى فقط الميزات (features)
 y = X_reg["target_days_to_next_order"]
 
-# ✅ Make time features categorical (better than treating them as continuous numbers)
+#  Make time features categorical
 if "order_dow" in X.columns:
     X["order_dow"] = X["order_dow"].astype("category")
 if "order_hour_of_day" in X.columns:
     X["order_hour_of_day"] = X["order_hour_of_day"].astype("category")
 
-# ✅ FIX: numeric columns must include ALL numeric dtypes (int8/int16/int32/float32 too)
+# numeric columns must include ALL numeric dtypes (int8/int16/int32/float32 too)
 num_cols = X.select_dtypes(include=["number"]).columns.tolist()
 cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
 
@@ -574,7 +574,7 @@ X_train, X_val, y_train, y_val = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-# ✅ Pipeline (clean + prevents mistakes)
+# Pipeline (clean + prevents mistakes) الهدف: منع الأخطاء و منع data leakage
 pipe_reg = Pipeline([
     ("prep", preprocessor),
     ("model", LinearRegression())
@@ -583,10 +583,10 @@ pipe_reg = Pipeline([
 # ===== Train =====
 pipe_reg.fit(X_train, y_train)
 
-# ===== Predict =====
+# ===== Predict ===== التنبؤ
 y_pred = pipe_reg.predict(X_val)
 
-# ===== Evaluate =====
+# ===== Evaluate =====تقييم النموذج
 mae = mean_absolute_error(y_val, y_pred)
 rmse = np.sqrt(mean_squared_error(y_val, y_pred))
 r2 = r2_score(y_val, y_pred)
@@ -621,10 +621,10 @@ print("[Task A] Downsampled class balance:\n", Xy_small["y_reordered_next"].valu
 X = Xy_small.drop(columns=["y_reordered_next"])
 y = Xy_small["y_reordered_next"]
 
-# ✅ FIX: include all numeric dtypes (int8/int16/int32/float32...)
+# include all numeric dtypes (int8/int16/int32/float32...)
 num_cols = X.select_dtypes(include=["number"]).columns.tolist()
 cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
-
+#طباعة عدد الأعمدة لكل نوع
 print("\n[Task A] Numeric columns:", len(num_cols))
 print("[Task A] Categorical columns:", len(cat_cols))
 
@@ -663,7 +663,7 @@ pipe_cls.fit(X_train, y_train)
 
 # ===== Predict + Evaluate =====
 y_pred = pipe_cls.predict(X_val)
-y_pred_proba = pipe_cls.predict_proba(X_val)[:, 1]
+y_pred_proba = pipe_cls.predict_proba(X_val)[:, 1] #يحسب احتمال الانتماء للكلاس 1 لكل صف.
 
 print("\nTask A – Classification Results (Logistic Regression, downsampled)")
 print("Accuracy :", accuracy_score(y_val, y_pred))
@@ -673,9 +673,7 @@ print("F1-score :", f1_score(y_val, y_pred))
 print("ROC-AUC  :", roc_auc_score(y_val, y_pred_proba))
 print("PR-AUC   :", average_precision_score(y_val, y_pred_proba))
 # =========================
-# STEP 4 — FULL MODEL SUITE + COMPARISON (Task A + Task B) ✅ READY TO PASTE
-# Paste this whole block at "Step 4" and run ONLY this block (not the whole file)
-# Requires: Xy_cls, X_reg already created above
+# STEP 4 — FULL MODEL SUITE + COMPARISON (Task A + Task B) 
 # =========================
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
@@ -723,7 +721,7 @@ def _get_score(model, X):
 # =========================
 def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
 
-    # ---- Downsample for feasibility (all pos + neg_ratio*pos negatives) ----
+    #Downsample for feasibility (all pos + neg_ratio*pos negatives) 
     pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
     neg = Xy_cls[Xy_cls["y_reordered_next"] == 0]
     neg_sample = neg.sample(n=min(len(pos) * neg_ratio, len(neg)), random_state=random_state)
@@ -780,7 +778,7 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
 
     results = []
 
-    # ---------- FAST models (train on FULL train split) ----------
+    #FAST models (train on FULL train split)
     fast_models = [
         ("LogReg", preproc_sparse, LogisticRegression(max_iter=2000, class_weight="balanced")),
         ("SGD_LogLoss", preproc_sparse, SGDClassifier(loss="log_loss", class_weight="balanced", random_state=random_state)),
@@ -807,11 +805,11 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
         ])
         print(f"[Task A] Done: {name}")
 
-    # ---------- HEAVY models (train on SUBSAMPLE only) ----------
+    #HEAVY models (train on SUBSAMPLE only)
     n_heavy = min(heavy_sample, len(X_train))
-    rng = np.random.RandomState(random_state)
+    rng = np.random.RandomState(random_state)#يختار فهارس عشوائية بدون تكرار بعدد n_heavy من بيانات التدريب
     heavy_idx = rng.choice(len(X_train), size=n_heavy, replace=False)
-
+    #إنشاء نسخ تدريب فرعية
     X_train_h = X_train.iloc[heavy_idx]
     y_train_h = y_train.iloc[heavy_idx]
 
@@ -880,12 +878,13 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
         ("imp", SimpleImputer(strategy="most_frequent")),
         ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
     ])
+    #دمج الـ preprocessing
     preproc_sparse = ColumnTransformer(
         transformers=[("num", num_pipe, num_cols), ("cat", cat_pipe_sparse, cat_cols)],
         remainder="drop"
     )
 
-    # ---- Dense preprocessor (for HistGBReg ONLY; it needs dense X) ----
+    #Dense preprocessor (for HistGBReg ONLY; it needs dense X)
     cat_pipe_dense = Pipeline([
         ("imp", SimpleImputer(strategy="most_frequent")),
         ("ord", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
@@ -912,7 +911,9 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
 
     results = []
     for name, mode, reg in models:
-
+#اختيار preprocessing المناسب:
+#HistGB → dense
+#البقية → sparse
         prep = preproc_dense if mode == "dense" else preproc_sparse
         pipe = Pipeline([("prep", prep), ("model", reg)])
 
@@ -922,20 +923,26 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
             rng = np.random.RandomState(random_state)
             idx = rng.choice(len(X_train), size=n_svr, replace=False)
             pipe.fit(X_train.iloc[idx], y_train.iloc[idx])
+             #التنبؤ على  validatio            
             y_pred = pipe.predict(X_val)
+             #توثيق أن التدريب كان على عينة            
             train_note = f"sub_train({n_svr})"
+        # باقي الموديلات (تدريب كامل)         
         else:
             pipe.fit(X_train, y_train)
+                       
             y_pred = pipe.predict(X_val)
+                    
             train_note = f"full_train({len(X_train)})"
-
+#      =========================
+#حساب مقاييس Regression
         mae = mean_absolute_error(y_val, y_pred)
         rmse = np.sqrt(mean_squared_error(y_val, y_pred))
         r2 = r2_score(y_val, y_pred)
 
         results.append([name, mae, rmse, r2, train_note])
         print(f"[Task B] Done: {name}")
-
+#جدول المقارنة النهائي
     df = pd.DataFrame(results, columns=["Model", "MAE", "RMSE", "R2", "TrainSize"])
     df = df.sort_values(by="MAE", ascending=True).reset_index(drop=True)
 
@@ -951,7 +958,6 @@ taskA_results = run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random
 taskB_results = run_taskB_suite(X_reg, random_state=42, svr_sample=30000)
 # =========================
 # STEP 5 — Hyperparameter Tuning + (Time-aware split for Task B when possible)
-# Paste هذا الجزء بعد Step 4 مباشرة (بعد ما يكون عندك Xy_cls و X_reg جاهزين)
 # =========================
 from sklearn.model_selection import train_test_split, TimeSeriesSplit, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
@@ -963,7 +969,7 @@ from sklearn.metrics import (
 )
 
 # -------------------------
-# Helper: downsample Task A (مثل اللي عندك) عشان التونينغ ما يطول
+# Helper: downsample Task A 
 # -------------------------
 def _downsample_taskA(Xy_cls, neg_ratio=5, random_state=42):
     pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
@@ -979,8 +985,8 @@ def _downsample_taskA(Xy_cls, neg_ratio=5, random_state=42):
 
 
 # =========================
-# TASK A — Tune HistGBClassifier (أفضل موديل عندك غالباً)
-# Dense-only preprocessing (Ordinal for categories) عشان HistGB ما يحب sparse
+# TASK A — Tune HistGBClassifier
+# Dense-only preprocessing (Ordinal for categories)
 # =========================
 def tune_taskA_histgb(
     Xy_cls,
@@ -1208,14 +1214,14 @@ print("[Task A] val metrics:", bestA_metrics)
 print("[Task B] best params:", bestB_params)
 print("[Task B] holdout metrics:", bestB_metrics)
 # =========================
-# STEP 6 — SHAP EXPLAINABILITY (Task A + Task B) [ROBUST]
+# STEP 6 — SHAP EXPLAINABILITY (Task A + Task B)
 # =========================
 import shap
 from scipy import sparse
 
 
 
-# ---------- helpers ----------
+#Helper
 def _to_dense(X):
     return X.toarray() if sparse.issparse(X) else X
 
@@ -1311,7 +1317,7 @@ _make_shap_summary(
     sample_size=3000
 )
 # =========================
-# STEP 7 — ROBUSTNESS & STRESS TESTS (FIXED)
+# STEP 7 — ROBUSTNESS & STRESS TESTS
 # =========================
 
 from sklearn.model_selection import train_test_split
@@ -1443,7 +1449,7 @@ models = [
     ("kNN (k=25)", KNeighborsClassifier(n_neighbors=25)),
     ("DecisionTree", DecisionTreeClassifier(max_depth=8, random_state=42)),
 ]
-# ---------- 4) helper for plotting one model ----------
+#Helper for plotting one model
 def plot_boundary(ax, model, X2d, y, title, grid_n=250):
     model.fit(X2d, y)
 
@@ -1571,7 +1577,7 @@ def plot_pr_overlay(models_dict, X_val, y_val, title="Task A – PR Overlay"):
 # ============================================================
 # Task A — Prepare a SMALL sample validation set (FAST)
 # ============================================================
-A_SAMPLE = 300000   # 200k–500k حسب جهازك
+A_SAMPLE = 300000
 VAL_FRAC = 0.2
 Xy_A = Xy_cls.sample(n=min(A_SAMPLE, len(Xy_cls)), random_state=42).copy()
 X_all_A = Xy_A.drop(columns=["y_reordered_next"])
@@ -1630,7 +1636,7 @@ plt.ylabel("Predicted Days to Next Order")
 plt.title("Task B – Actual vs Predicted")
 plt.tight_layout()
 plt.show()
-# ---- Residuals plot
+#Residuals plot
 residuals = y_true - y_pred
 plt.figure(figsize=(6, 5))
 plt.scatter(y_pred, residuals, alpha=0.25)
