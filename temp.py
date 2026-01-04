@@ -588,6 +588,7 @@ print("\n[Task B] Numeric columns:", num_cols)
 print("[Task B] Categorical columns:", cat_cols)
 
 # ===== Preprocessing =====
+#One-Hot Encoding
 preprocessor = ColumnTransformer(
     transformers=[
         ("num", StandardScaler(), num_cols),
@@ -663,7 +664,7 @@ num_pipe = Pipeline([
 
 cat_pipe = Pipeline([
     ("imputer", SimpleImputer(strategy="most_frequent")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
+    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=True))#One-Hot Encoding
 ])
 
 preprocessor = ColumnTransformer(
@@ -777,7 +778,7 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
     ])
     cat_sparse = Pipeline([
         ("imp", SimpleImputer(strategy="most_frequent")),
-        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
+        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))#One-Hot Encoding
     ])
     preproc_sparse = ColumnTransformer(
         transformers=[("num", num_sparse, num_cols), ("cat", cat_sparse, cat_cols)],
@@ -903,7 +904,7 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
     ])
     cat_pipe_sparse = Pipeline([
         ("imp", SimpleImputer(strategy="most_frequent")),
-        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
+        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))#One-Hot Encoding
     ])
     #دمج الـ preprocessing
     preproc_sparse = ColumnTransformer(
