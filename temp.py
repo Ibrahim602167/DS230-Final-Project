@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+#STEP 1
 # =========================
 # LOAD DATA 
 # =========================
@@ -46,7 +47,7 @@ train_full = train_full.merge(orders, on="order_id", how="left")
 
 print("prior_full (after orders):", prior_full.shape)
 print("train_full (after orders):", train_full.shape)
-
+#STEP 2
 # =========================
 #MISSING + BASIC EDA COUNTS
 # =========================
@@ -247,6 +248,7 @@ for col in numeric_cols:
     prior_full[col] = prior_full[col].clip(lower=lo, upper=hi)
 
 # AFTER treatment evidence
+#التأكد بصريًا من أن القيم الشاذة تمت معالجتها بنجاح بعد القصّ
 for col in numeric_cols:
     plt.figure(figsize=(5,3))
     plt.boxplot(prior_full[col].dropna(), vert=False)
@@ -258,6 +260,7 @@ for col in numeric_cols:
 # =========================
 # Categorical counts
 # =========================
+# السبب, لفهم أنماط الطلب عبر الزمن
 categorical_cols = ["order_dow", "order_hour_of_day"]
 for col in categorical_cols:
     counts = prior_full[col].value_counts().sort_index()
@@ -270,7 +273,8 @@ for col in categorical_cols:
     plt.show()
 
 # =========================
-#Pairwise scatter (required)
+#Pairwise scatter
+#فحص العلاقة بين المتغيرات العددية بصريًا لاكتشاف أنماط أو اتجاهات محتملة قبل النمذجة
 # =========================
 sample_df = prior_full[["order_number", "add_to_cart_order", "days_since_prior_order"]].sample(
     n=min(5000, len(prior_full)), random_state=42
@@ -285,6 +289,7 @@ plt.show()
 
 # =========================
 # Correlation
+#حساب وعرض مصفوفة الارتباط بين المتغيرات العددية
 # =========================
 corr = prior_full[numeric_cols].corr()
 plt.figure(figsize=(5,4))
@@ -297,7 +302,9 @@ plt.show()
 
 # =========================
 # Seasonality
+#تحليل الموسمية في الطلبات عبر اليوم وأيام الأسبوع لفهم متى تزداد أو تقل الطلبات
 # =========================
+#توزيع الطلبات حسب ساعة اليوم
 hour_counts = prior_full["order_hour_of_day"].value_counts().sort_index()
 plt.figure(figsize=(6,4))
 plt.bar(hour_counts.index, hour_counts.values, alpha=0.7)
@@ -306,7 +313,7 @@ plt.xlabel("Hour")
 plt.ylabel("Count")
 plt.tight_layout()
 plt.show()
-
+#توزيع الطلبات على أيام الأسبوع
 dow_counts = prior_full["order_dow"].value_counts().sort_index()
 plt.figure(figsize=(6,4))
 plt.bar(dow_counts.index, dow_counts.values, alpha=0.7)
@@ -349,6 +356,7 @@ user_reorder_ratio_df = (
 )
 
 # 4) mean days between orders per user
+#حساب متوسط عدد الأيام بين طلبات المستخدم
 user_mean_days_between_df = (
     prior_full.groupby("user_id")["days_since_prior_order"]
     .mean()
@@ -356,14 +364,16 @@ user_mean_days_between_df = (
 )
 
 # 5) last order recency (proxy): days_since_prior_order for user's last prior order
+#حساب عدد الأيام منذ آخر طلب
 idx_last_user = prior_full.groupby("user_id")["order_number"].idxmax()
 user_last_recency_df = (
     prior_full.loc[idx_last_user, ["user_id", "days_since_prior_order"]]
     .rename(columns={"days_since_prior_order": "user_last_order_recency"})
-    .reset_index(drop=True)
+    .reset_index(drop=True)#يعيد ترقيم الصفوف ويحذف الفهرس القديم لتنظيم الجدول الناتج.
 )
 
 # Merge user features
+#تجميع كل الميزات السلوكية الخاصة بالمستخدم في جدول واحد موحّد ليُستخدم مباشرة كمدخل للنمذجة.
 user_features_df = (
     user_total_orders_df
     .merge(user_avg_basket_df, on="user_id", how="left")
@@ -380,6 +390,7 @@ print(user_features_df.head())
 # ----------------------------
 
 # 1) overall orders (popularity)
+# المنتجات الاكثر طلبا
 prod_orders_df = (
     prior_full.groupby("product_id")["order_id"]
     .count()
@@ -387,6 +398,7 @@ prod_orders_df = (
 )
 
 # 2) overall reorder rate
+#حساب نسبة إعادة الطلب لكل منتج
 prod_reorder_rate_df = (
     prior_full.groupby("product_id")["reordered"]
     .mean()
@@ -394,6 +406,7 @@ prod_reorder_rate_df = (
 )
 
 # 3) average position in cart
+#حساب متوسط ترتيب إضافة المنتج إلى السلة لمعرفة إن كان المنتج يُضاف عادةً في بداية الطلب أو نهايته
 prod_avg_cart_pos_df = (
     prior_full.groupby("product_id")["add_to_cart_order"]
     .mean()
@@ -401,6 +414,7 @@ prod_avg_cart_pos_df = (
 )
 
 # 4) popularity over time (simple proxy): avg order_number when product is bought
+#تقدير شعبية المنتج عبر الزمن بحساب متوسط رقم الطلب الذي يُشترى فيه المنتج
 prod_popularity_over_time_df = (
     prior_full.groupby("product_id")["order_number"]
     .mean()
@@ -422,6 +436,7 @@ print(product_features_df.head())
 # ----------------------------
 
 # 1) prior purchase count
+#حساب عدد مرات شراء كل مستخدم لكل منتج سابقًا
 user_prod_prior_count_df = (
     prior_full.groupby(["user_id", "product_id"])["order_id"]
     .count()
@@ -429,34 +444,36 @@ user_prod_prior_count_df = (
 )
 
 # 2) average reorder probability for user-product
+#حساب متوسط احتمال إعادة شراء منتج معيّن لكل مستخدم
 user_prod_avg_reorder_prob_df = (
     prior_full.groupby(["user_id", "product_id"])["reordered"]
     .mean()
     .reset_index(name="user_prod_avg_reorder_prob")
 )
 
-# 3) days since last purchase (proxy using order_number gap)
+# 3) days since last purchase 
+#تحديد آخر مرة اشترى فيها المستخدم المنتج (باستخدام أكبر رقم طلب)
 user_prod_last_order_number_df = (
     prior_full.groupby(["user_id", "product_id"])["order_number"]
     .max()
     .reset_index(name="user_prod_last_order_number")
 )
-
+#تحديد آخر رقم طلب لكل مستخدم
 user_last_order_number_df = (
     prior_full.groupby("user_id")["order_number"]
     .max()
     .reset_index(name="user_last_order_number")
 )
-
+#حساب حداثة شراء المنتج لكل مستخدم بمقارنة آخر مرة اشترى فيها المستخدم المنتج مع آخر طلب قام به المستخدم بشكل عام
 user_prod_recency_df = user_prod_last_order_number_df.merge(
     user_last_order_number_df, on="user_id", how="left"
 )
-
+#حساب عدد الطلبات التي مرّت منذ آخر مرة اشترى فيها المستخدم المنتج
 user_prod_recency_df["user_prod_days_since_last_purchase_orders"] = (
     user_prod_recency_df["user_last_order_number"]
     - user_prod_recency_df["user_prod_last_order_number"]
 )
-
+#تجميع جميع الميزات المشتركة بين المستخدم والمنتج في جدول واحد موحّد
 user_product_features_df = (
     user_prod_prior_count_df
     .merge(user_prod_avg_reorder_prob_df, on=["user_id", "product_id"], how="left")
@@ -474,9 +491,10 @@ print(user_product_features_df.head())
 # ----------------------------
 # Use each user's TRAIN order metadata as "next order context" (dow/hour)
 # Also gives a regression target option: days_since_prior_order for the train order
+#إنشاء جدول “سياق الطلب القادم” لكل مستخدم من بيانات الـ train (يوم/ساعة الطلب) وتجهيز هدف الانحدار days_to_next_order لاستخدامه في التنبؤ بالطلب القادم
 train_order_meta = (
     train_full[["user_id", "order_id", "order_dow", "order_hour_of_day", "days_since_prior_order"]]
-    .drop_duplicates("user_id")
+    .drop_duplicates("user_id")#الاحتفاظ بسجل واحد فقط لكل مستخدم
     .rename(columns={"days_since_prior_order": "target_days_to_next_order"})
 )
 
@@ -492,6 +510,7 @@ print(train_order_meta.head())
 # Label comes from train_full: (user_id, product_id) reordered in train
 # Candidate pairs: pairs that exist in prior (keeps dataset manageable)
 # ----------------------------
+#بناء بيانات الإدخال (X) و الهدف (y) لمهمة التصنيف (Task A) عبر تجميع ميزات المستخدم والمنتج ,والمستخدم×المنتج والسياق الزمني،
 y_cls = train_full[["user_id", "product_id", "reordered"]].rename(columns={"reordered": "y_reordered_next"})
 
 X_cls = (
@@ -503,7 +522,7 @@ X_cls = (
     .merge(train_order_meta[["user_id", "order_dow", "order_hour_of_day"]], on="user_id", how="left")
 )
 
-Xy_cls = X_cls.merge(y_cls, on=["user_id", "product_id"], how="left")
+Xy_cls = X_cls.merge(y_cls, on=["user_id", "product_id"], how="left")#دمج المتغير الهدف مع بيانات التصنيف
 Xy_cls["y_reordered_next"] = Xy_cls["y_reordered_next"].fillna(0).astype("int8")
 
 print("\nXy_cls (Task A):", Xy_cls.shape)
@@ -513,6 +532,7 @@ print("Task A class balance:", Xy_cls["y_reordered_next"].value_counts(normalize
 # Task B (Regression dataset) — user-level target
 # Predict days until next order (proxy): train order days_since_prior_order
 # ----------------------------
+#بناء بيانات Task B (الانحدار) عبر دمج ميزات المستخدم مع السياق الزمني للطلب، لإعداد المدخلات والهدف اللازمين للتنبؤ بعدد الأيام حتى الطلب القادم
 X_reg = (
     user_features_df
     .merge(train_order_meta[["user_id", "order_dow", "order_hour_of_day", "target_days_to_next_order"]],
@@ -524,6 +544,7 @@ print(X_reg.head())
 
 # ----------------------------
 # Save (optional)
+#حفظ جميع جداول الميزات وبيانات Task A (تصنيف) و Task B (انحدار) كملفات CSV
 # ----------------------------
 # If parquet gives you issues, change to .to_csv(...)
 user_features_df.to_csv("fe_user_features.csv", index=False)
