@@ -55,6 +55,7 @@ print("Number of products:", prior_full["product_id"].nunique())
 print("Number of orders:", prior_full["order_id"].nunique())
 
 #Target distribution + plot (required)
+#فحص وتوضيح توزيع المتغير الهدف reordered لمعرفة نسبة إعادة الطلب وهل البيانات متوازنة قبل تدريب نموذج التصنيف
 reorder_rate = prior_full["reordered"].value_counts(normalize=True)
 print("\nReordered distribution (normalized):\n", reorder_rate)
 
@@ -67,6 +68,7 @@ plt.tight_layout()
 plt.show()
 
 # Existing quick counts
+#استخراج إحصاءات سريعة عن سلوك الطلبات لفهم الأنماط العامة قبل بناء الميزات
 prior_full["order_hour_of_day"].value_counts().sort_index()
 prior_full["order_dow"].value_counts().sort_index()
 
@@ -86,7 +88,7 @@ prior_full["days_since_prior_order"] = prior_full["days_since_prior_order"].fill
 train_full["days_since_prior_order"] = train_full["days_since_prior_order"].fillna(0)
 
 print("Missing days_since_prior_order ratio AFTER  fill:", prior_full["days_since_prior_order"].isna().mean())
-
+#########################################################
 # =========================
 #Memory optimization (strong) + evidence
 # =========================
@@ -127,7 +129,7 @@ prior_mem = prior_full.memory_usage(deep=True).sum() / 1024**2
 train_mem = train_full.memory_usage(deep=True).sum() / 1024**2
 print(f"\nprior_full memory (MB): {prior_mem:.2f}")
 print(f"train_full memory (MB): {train_mem:.2f}")
-
+#############################################################
 # =========================
 # Cleaning data
 # =========================
@@ -144,14 +146,16 @@ bad_order_number = (prior_full["order_number"] <= 0).sum()
 bad_cart_order = (prior_full["add_to_cart_order"] <= 0).sum()
 print("[Cleaning] invalid order_number<=0 count:", bad_order_number)
 print("[Cleaning] invalid add_to_cart_order<=0 count:", bad_cart_order)
-
+#يفلتر البيانات ويحتفظ فقط بالصفوف التي فيها order_number أكبر من 0
 prior_full = prior_full[prior_full["order_number"] > 0]
+#يفلتر البيانات ويحتفظ فقط بالصفوف التي فيها add_to_cart_order أكبر من 0
 prior_full = prior_full[prior_full["add_to_cart_order"] > 0]
 
 # =========================
 #Missing percent 
 # =========================
 missing_percent = prior_full.isna().mean() * 100
+#يحتفظ فقط بالأعمدة التي تحتوي فعليًا على قيم مفقودة (أكبر من 0%).
 missing_percent = missing_percent[missing_percent > 0]
 if not missing_percent.empty:
     plt.figure(figsize=(10,4))
@@ -167,6 +171,7 @@ else:
 # =========================
 #Cardinality analysis
 # =========================
+#حديد أكثر 10 منتجات تم طلبها لفهم المنتجات ذات التكرار العالي وتقييم كثافة القيم في product_id قبل النمذجة.
 top_products = prior_full["product_id"].value_counts().head(10)
 plt.figure(figsize=(7,4))
 plt.bar(top_products.index.astype(str), top_products.values, alpha=0.7)
@@ -176,7 +181,7 @@ plt.ylabel("Count")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
-
+#تحديد أكثر 10 ممرات تم الطلب منها لمعرفة الممرات الأكثر نشاطًا
 if "aisle" in prior_full.columns:
     top_aisles = prior_full["aisle"].value_counts().head(10)
     plt.figure(figsize=(7,4))
@@ -187,7 +192,7 @@ if "aisle" in prior_full.columns:
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
     plt.show()
-
+#تحديد أكثر 10 departments تم الطلب منها
 if "department" in prior_full.columns:
     top_depts = prior_full["department"].value_counts().head(10)
     plt.figure(figsize=(7,4))
@@ -198,7 +203,7 @@ if "department" in prior_full.columns:
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
     plt.show()
-
+#عرض عدد القيم الفريدة في الأعمدة الرئيسية لتقييم درجة الـ cardinality
 print("\n[Cardinality] nunique summary:")
 for c in ["user_id", "product_id", "aisle_id", "department_id", "aisle", "department", "order_id"]:
     if c in prior_full.columns:
@@ -207,6 +212,7 @@ for c in ["user_id", "product_id", "aisle_id", "department_id", "aisle", "depart
 # =========================
 # Numeric distributions
 # =========================
+#فحص شكل وتوزيع المتغيرات العددية الأساسية لفهم سلوكها واكتشاف الانحرافات أو القيم الشاذة قبل بناء الميزات والنماذج
 numeric_cols = ["add_to_cart_order","days_since_prior_order", "order_number"]
 for col in numeric_cols:
     plt.figure(figsize=(6,4))
@@ -220,7 +226,7 @@ for col in numeric_cols:
 # =========================
 #Boxplots (outlier detection) + Outlier treatment (required)
 # -------------------------
-# First: BEFORE treatment (optional view)
+# First: اكتشاف القيم الشاذة في المتغيرات العددية بصريًا قبل معالجتها
 for col in numeric_cols:
     plt.figure(figsize=(5,3))
     plt.boxplot(prior_full[col].dropna(), vert=False)
@@ -237,6 +243,7 @@ for col in numeric_cols:
     out_low = (prior_full[col] < lo).sum()
     out_high = (prior_full[col] > hi).sum()
     print(f"[Outliers] {col}: below_lo={out_low}, above_hi={out_high}")
+    #يقصّ القيم الشاذة    
     prior_full[col] = prior_full[col].clip(lower=lo, upper=hi)
 
 # AFTER treatment evidence
@@ -477,7 +484,7 @@ print("\ntrain_order_meta:", train_order_meta.shape)
 print(train_order_meta.head())
 
 # ============================================================
-# OPTIONAL (but useful now): Build datasets for Task A & B
+# Build datasets for Task A & B
 # ============================================================
 
 # ----------------------------
