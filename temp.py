@@ -546,7 +546,6 @@ print(X_reg.head())
 # Save (optional)
 #حفظ جميع جداول الميزات وبيانات Task A (تصنيف) و Task B (انحدار) كملفات CSV
 # ----------------------------
-# If parquet gives you issues, change to .to_csv(...)
 user_features_df.to_csv("fe_user_features.csv", index=False)
 product_features_df.to_csv("fe_product_features.csv", index=False)
 user_product_features_df.to_csv("fe_user_product_features.csv", index=False)
