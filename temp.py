@@ -47,7 +47,6 @@ train_full = train_full.merge(orders, on="order_id", how="left")
 
 print("prior_full (after orders):", prior_full.shape)
 print("train_full (after orders):", train_full.shape)
-#STEP 2
 # =========================
 #MISSING + BASIC EDA COUNTS
 # =========================
@@ -322,7 +321,7 @@ plt.xlabel("Day of Week")
 plt.ylabel("Count")
 plt.tight_layout()
 plt.show()
-
+#STEP 2
 # =========================
 #Monthly seasonality note (dataset limitation)
 # =========================
