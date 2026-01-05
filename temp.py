@@ -571,6 +571,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # ===== تجهيز X و y =====
+#فصل المدخلات عن المخرجات استعدادًا لتدريب نموذج تعلّم آلي بدون تسريب بيانات.
 X = X_reg.drop(columns=["target_days_to_next_order"])#يبقى فقط الميزات (features)
 y = X_reg["target_days_to_next_order"]
 
@@ -580,10 +581,9 @@ if "order_dow" in X.columns:
 if "order_hour_of_day" in X.columns:
     X["order_hour_of_day"] = X["order_hour_of_day"].astype("category")
 
-# numeric columns must include ALL numeric dtypes (int8/int16/int32/float32 too)
+# تحديد الأعمدة الرقمية والأعمدة الفئوية تلقائيًا تمهيدًا لتطبيق معالجة مختلفة على كل نوع
 num_cols = X.select_dtypes(include=["number"]).columns.tolist()
 cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
-
 print("\n[Task B] Numeric columns:", num_cols)
 print("[Task B] Categorical columns:", cat_cols)
 
@@ -592,7 +592,7 @@ print("[Task B] Categorical columns:", cat_cols)
 preprocessor = ColumnTransformer(
     transformers=[
         ("num", StandardScaler(), num_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),#الأعمدة الفئوية تُحوَّل إلى تمثيل عددي
     ],
     remainder="drop"
 )
@@ -623,10 +623,7 @@ print("\nTask B – Regression Results (Linear Regression)")
 print("MAE :", mae)
 print("RMSE:", rmse)
 print("R²  :", r2)
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
+#استيراد الأدوات اللازمة لبناء وتقييم نموذج تصنيف (Logistic Regression)
 from sklearn.linear_model import LogisticRegression
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import (
@@ -638,7 +635,7 @@ from sklearn.metrics import (
 # ===== Downsample to avoid MemoryError (keep all positives + 5x negatives) =====
 pos = Xy_cls[Xy_cls["y_reordered_next"] == 1]
 neg = Xy_cls[Xy_cls["y_reordered_next"] == 0]
-
+#إنشاء مجموعة تدريب مصغّرة ومتوازنة نسبيًا لمهمة التصنيف
 neg_sample = neg.sample(n=min(len(pos) * 5, len(neg)), random_state=42)
 Xy_small = pd.concat([pos, neg_sample], axis=0).sample(frac=1, random_state=42).reset_index(drop=True)
 
@@ -646,6 +643,7 @@ print("\n[Task A] Using downsampled data:", Xy_small.shape)
 print("[Task A] Downsampled class balance:\n", Xy_small["y_reordered_next"].value_counts(normalize=True))
 
 # ===== تجهيز X و y =====
+#فصل المتغيرات المدخلة X عن المتغير الهدف y لتجهيز البيانات لتدريب نموذج التصنيف.
 X = Xy_small.drop(columns=["y_reordered_next"])
 y = Xy_small["y_reordered_next"]
 
@@ -664,9 +662,9 @@ num_pipe = Pipeline([
 
 cat_pipe = Pipeline([
     ("imputer", SimpleImputer(strategy="most_frequent")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=True))#One-Hot Encoding
+    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
 ])
-
+#تجميع معالجة المتغيرات العددية والفئوية في مُعالج واحد
 preprocessor = ColumnTransformer(
     transformers=[
         ("num", num_pipe, num_cols),
@@ -674,6 +672,8 @@ preprocessor = ColumnTransformer(
     ],
     remainder="drop",
     sparse_threshold=0.3
+    #إذا كانت نسبة القيم غير الصفرية في الناتج أقل من 30% → يُرجع sparse (أخف بالذاكرة).
+#إذا كانت أكبر أو تساوي 30% → يُرجع dense.
 )
 
 # ===== Split =====
@@ -682,6 +682,7 @@ X_train, X_val, y_train, y_val = train_test_split(
 )
 
 # ===== Model =====
+#بناء خط أنابيب كامل يربط المعالجة المسبقة مع نموذج Logistic Regression
 pipe_cls = Pipeline([
     ("prep", preprocessor),
     ("model", LogisticRegression(max_iter=1000, class_weight="balanced"))
@@ -734,6 +735,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 # =========================
 # Helper: get score for AUC metrics
 # =========================
+#توحيد طريقة استخراج درجة تنبؤ مستمرة
 def _get_score(model, X):
     """Return a continuous score for ROC/PR AUC.
     Prefer predict_proba[:,1], else decision_function."""
@@ -768,10 +770,12 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
     y = Xy_small["y_reordered_next"]
 
     # Identify columns
+    #تحديد الأعمدة العددية والفئوية تلقائيًا لتطبيق المعالجة المسبقة المناسبة على كل نوع قبل تدريب نماذج التصنيف.
     num_cols = X.select_dtypes(include=["number"]).columns.tolist()
     cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
 
     # Sparse-friendly preprocessor (fast linear models)
+    #إنشاء معالج مسبق خفيف ومتوافق مع البيانات sparse لتجهيز الميزات العددية والفئوية
     num_sparse = Pipeline([
         ("imp", SimpleImputer(strategy="constant", fill_value=0)),
         ("sc", StandardScaler(with_mean=False))
@@ -785,7 +789,8 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
         remainder="drop"
     )
 
-    # Dense preprocessor (for heavy models: kNN/Tree/RF/HistGB)
+    # Dense preprocessor (for heavy models: kNN/Tree/Random Forest/HistGB)
+    #استخدام Ordinal Encoding بدل One-Hot لتوافق هذه النماذج
     num_dense = Pipeline([
         ("imp", SimpleImputer(strategy="median")),
         ("sc", StandardScaler())
@@ -807,13 +812,14 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
     results = []
 
     #FAST models (train on FULL train split)
+    #تعريف مجموعة نماذج تصنيف سريعة تعتمد على تمثيل sparse لتدريبها ومقارنتها بسرعة على بيانات Task A
     fast_models = [
         ("LogReg", preproc_sparse, LogisticRegression(max_iter=2000, class_weight="balanced")),
         ("SGD_LogLoss", preproc_sparse, SGDClassifier(loss="log_loss", class_weight="balanced", random_state=random_state)),
         ("LinearSVC", preproc_sparse, LinearSVC(class_weight="balanced", random_state=random_state)),
         ("BernoulliNB", preproc_sparse, BernoulliNB())
     ]
-
+#تدريب كل نموذج تصنيف سريع، تقييم أدائه على بيانات التحقق باستخدام عدة مقاييس، وتجميع النتائج للمقارنة بين النماذج
     for name, prep, clf in fast_models:
         pipe = Pipeline([("prep", prep), ("model", clf)])
         pipe.fit(X_train, y_train)
@@ -837,10 +843,10 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
     n_heavy = min(heavy_sample, len(X_train))
     rng = np.random.RandomState(random_state)#يختار فهارس عشوائية بدون تكرار بعدد n_heavy من بيانات التدريب
     heavy_idx = rng.choice(len(X_train), size=n_heavy, replace=False)
-    #إنشاء نسخ تدريب فرعية
+    #إنشاء نسخ تدريب فرعية    
     X_train_h = X_train.iloc[heavy_idx]
     y_train_h = y_train.iloc[heavy_idx]
-
+#تعريف مجموعة نماذج تصنيف ثقيلة تعتمد على المعالجة الكثيفة (dense) لتجربتها ومقارنتها ضمن Task A
     heavy_models = [
         ("kNN", preproc_dense, KNeighborsClassifier(n_neighbors=15)),
         ("DecisionTree", preproc_dense,
@@ -850,7 +856,7 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
                                 class_weight="balanced_subsample")),
         ("HistGB", preproc_dense, HistGradientBoostingClassifier(random_state=random_state))
     ]
-
+#تدريب وتقييم النماذج الثقيلة على عيّنة فرعية من البيانات، ثم تسجيل أدائها لمقارنتها مع النماذج السريعة ضمن Task A.
     for name, prep, clf in heavy_models:
         pipe = Pipeline([("prep", prep), ("model", clf)])
         pipe.fit(X_train_h, y_train_h)
@@ -869,7 +875,9 @@ def run_taskA_suite(Xy_cls, neg_ratio=5, heavy_sample=200000, random_state=42):
             f"sub_train({n_heavy})"
         ])
         print(f"[Task A] Done: {name}")
-
+#==============================================================================
+#تجميع نتائج جميع نماذج Task A في جدول واحد، ترتيبها حسب PR-AUC، وعرضها للمقارنة واختيار النموذج الأفضل
+#==============================================================================
     df = pd.DataFrame(
         results,
         columns=["Model", "Accuracy", "Precision", "Recall", "F1", "ROC_AUC", "PR_AUC", "TrainSize"]
@@ -893,7 +901,7 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
         X["order_dow"] = X["order_dow"].astype("category")
     if "order_hour_of_day" in X.columns:
         X["order_hour_of_day"] = X["order_hour_of_day"].astype("category")
-
+#تحديد الأعمدة العددية والفئوية في بيانات Task B
     num_cols = X.select_dtypes(include=["number"]).columns.tolist()
     cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
 
@@ -904,7 +912,7 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
     ])
     cat_pipe_sparse = Pipeline([
         ("imp", SimpleImputer(strategy="most_frequent")),
-        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))#One-Hot Encoding
+        ("oh", OneHotEncoder(handle_unknown="ignore", sparse_output=True))
     ])
     #دمج الـ preprocessing
     preproc_sparse = ColumnTransformer(
@@ -913,6 +921,7 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
     )
 
     #Dense preprocessor (for HistGBReg ONLY; it needs dense X)
+    #استخدام Ordinal Encoding بدل One-Hot لأن هذا النموذج يتطلب مدخلات dense.
     cat_pipe_dense = Pipeline([
         ("imp", SimpleImputer(strategy="most_frequent")),
         ("ord", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1))
@@ -925,7 +934,7 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=0.2, random_state=random_state
     )
-
+#تعريف مجموعة نماذج الانحدار المختلفة
     models = [
         ("LinearRegression", "sparse", LinearRegression()),
         ("Ridge", "sparse", Ridge(alpha=1.0, random_state=random_state)),
@@ -941,7 +950,9 @@ def run_taskB_suite(X_reg, random_state=42, svr_sample=30000):
     for name, mode, reg in models:
 #اختيار preprocessing المناسب:
 #HistGB → dense
+
 #البقية → sparse
+  #بناء خط أنابيب يجمع الـ preprocessing مع نموذج الانحدار لتجربته ضمن Task B     
         prep = preproc_dense if mode == "dense" else preproc_sparse
         pipe = Pipeline([("prep", prep), ("model", reg)])
 
